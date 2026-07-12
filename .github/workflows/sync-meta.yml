@@ -1,0 +1,15 @@
+name: Sincronizar datos de Meta cada 30 minutos
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # cada 30 minutos, las 24 horas
+  workflow_dispatch:          # tambien permite correrlo manualmente desde GitHub
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar a /api/sync-meta
+        run: |
+          curl -sf -X GET "${{ secrets.SITE_URL }}/api/sync-meta" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

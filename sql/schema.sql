@@ -134,18 +134,21 @@ alter table ad_accounts enable row level security;
 alter table insight_snapshots enable row level security;
 alter table ai_summaries enable row level security;
 
+drop policy if exists "Los usuarios ven solo sus clientes" on clients;
 create policy "Los usuarios ven solo sus clientes"
   on clients for select
   using (
     id in (select client_id from client_members where user_id = auth.uid())
   );
 
+drop policy if exists "Los usuarios ven solo sus cuentas publicitarias" on ad_accounts;
 create policy "Los usuarios ven solo sus cuentas publicitarias"
   on ad_accounts for select
   using (
     client_id in (select client_id from client_members where user_id = auth.uid())
   );
 
+drop policy if exists "Los usuarios ven solo sus snapshots" on insight_snapshots;
 create policy "Los usuarios ven solo sus snapshots"
   on insight_snapshots for select
   using (
@@ -156,6 +159,7 @@ create policy "Los usuarios ven solo sus snapshots"
     )
   );
 
+drop policy if exists "Los usuarios ven solo sus analisis de IA" on ai_summaries;
 create policy "Los usuarios ven solo sus analisis de IA"
   on ai_summaries for select
   using (
@@ -165,3 +169,23 @@ create policy "Los usuarios ven solo sus analisis de IA"
       where cm.user_id = auth.uid()
     )
   );
+
+-- ------------------------------------------------------------
+-- 7) LECTURA ABIERTA TEMPORAL (solo mientras no exista login)
+--    Sin esto, el dashboard se veria vacio: las politicas de arriba
+--    exigen un usuario logueado con relacion en client_members, y
+--    en la Fase 1 (sin login) eso nunca existe.
+--    IMPORTANTE: eliminar estas 2 politicas cuando se active el login
+--    de clientes en la Fase 2 (ahi ya quedan cubiertas por las
+--    politicas de la seccion 6, que son las que de verdad protegen
+--    los datos de cada cliente).
+-- ------------------------------------------------------------
+drop policy if exists "fase1_lectura_publica_snapshots" on insight_snapshots;
+create policy "fase1_lectura_publica_snapshots"
+  on insight_snapshots for select
+  using (true);
+
+drop policy if exists "fase1_lectura_publica_resumenes" on ai_summaries;
+create policy "fase1_lectura_publica_resumenes"
+  on ai_summaries for select
+  using (true);
