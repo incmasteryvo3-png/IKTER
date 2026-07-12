@@ -54,6 +54,7 @@ async function runAnalysis() {
       period_start: periodStart,
       period_end: periodEnd,
       summary_md: summaryMd,
+      model: 'gemini-2.5-flash',
     });
 
     if (saveErr) return NextResponse.json({ error: saveErr.message }, { status: 500 });

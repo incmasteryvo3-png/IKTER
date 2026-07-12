@@ -2,8 +2,11 @@
 // Cliente minimo para Gemini API (analisis en lenguaje simple)
 // ============================================================
 
+// Uso gemini-2.5-flash: gemini-2.5-pro salio del nivel gratuito de la
+// API de Gemini a mediados de 2026 (quedo solo para cuentas con
+// facturacion activada). Flash es gratuito y de sobra para este resumen.
 const GEMINI_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 export async function generateAnalysis(consolidatedData: unknown) {
   const prompt = buildPrompt(consolidatedData);
