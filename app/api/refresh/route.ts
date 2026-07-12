@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { runMetaSync } from '@/lib/syncMeta';
 
+export const maxDuration = 60;
+
 // Llamado por el boton "Actualizar ahora" del dashboard.
 // No requiere secreto porque no acepta parametros sensibles del usuario:
 // siempre sincroniza la misma cuenta configurada en las variables de entorno.

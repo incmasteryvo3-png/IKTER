@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runMetaSync } from '@/lib/syncMeta';
 
+export const maxDuration = 60;
+
 // Ruta usada por el cron de Vercel (ver vercel.json).
 // Vercel agrega automaticamente "Authorization: Bearer <CRON_SECRET>"
 // en las llamadas programadas cuando defines la variable de entorno CRON_SECRET.
