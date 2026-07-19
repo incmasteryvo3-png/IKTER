@@ -1,5 +1,17 @@
 # Mastery Dashboard — Meta Ads en tiempo real + análisis con Gemini
 
+## Novedades de esta versión
+
+- **Identidad de marca**: logo y paleta oficial de Mastery aplicados (`public/logo-mastery.png`).
+- **Selector de fechas**: fecha inicial y final, consulta a Meta en vivo para ese rango exacto (`/api/insights`), no solo los últimos 30 días guardados por el cron.
+- **Comparador de hasta 3 campañas**: selector 1/2/3, con diseño lado a lado en escritorio y embudos completos apilados en celular (responsive real, sin scroll horizontal roto).
+- **Tabla unificada de anuncios**: una fila por anuncio, barras verticales compactas por métrica, insignias automáticas para el mejor y el más débil.
+- **Números nunca se recortan**: el color del embudo es una capa decorativa separada del número, que siempre se muestra completo.
+- **Descarga de informe en PDF**: un clic, sin diálogo de impresión — usa `html2canvas` + `jspdf` (dependencias reales del proyecto, no CDN).
+
+Todo lo anterior (sync con Meta cada 30 min vía GitHub Actions, botón "Actualizar ahora", análisis con Gemini, guardado en Supabase) sigue funcionando igual que antes — estos cambios son aditivos.
+
+
 Sistema completo: se conecta a Meta Ads, trae campañas/conjuntos/anuncios
 automáticamente cada cierto tiempo, guarda el histórico en una base de
 datos propia, y usa Gemini para generar un análisis en lenguaje simple.
