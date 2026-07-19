@@ -73,6 +73,7 @@ function normalizeRow(row: any, level: MetaLevel) {
     level,
     level_id: row[idKey],
     level_name: row[nameKey],
+    campaign_id: row.campaign_id, // se guarda siempre, para poder filtrar anuncios por campaña
     spend: parseFloat(row.spend || '0'),
     impressions: parseInt(row.impressions || '0', 10),
     reach: parseInt(row.reach || '0', 10),

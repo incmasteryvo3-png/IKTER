@@ -7,6 +7,7 @@ type InsightRow = {
   level: 'campaign' | 'ad';
   level_id: string;
   level_name: string;
+  campaign_id: string;
   spend: number;
   impressions: number;
   reach: number;
@@ -186,19 +187,25 @@ export default function Dashboard() {
     [selIds, campaigns]
   );
 
+  // Solo los anuncios que pertenecen a alguna de las campañas seleccionadas arriba
+  const filteredAds = useMemo(() => {
+    const selectedCampaignIds = new Set(selected.map((s) => s.data.level_id));
+    return ads.filter((a) => selectedCampaignIds.has(a.campaign_id));
+  }, [ads, selected]);
+
   const badges = useMemo(() => {
-    if (ads.length === 0) return null;
-    const maxReach = ads.reduce((m, a) => (a.reach > m.reach ? a : m), ads[0]);
-    const maxPlays = ads.reduce((m, a) => (a.video_plays > m.video_plays ? a : m), ads[0]);
-    const maxAvg = ads.reduce((m, a) => (a.video_avg_watch_seconds > m.video_avg_watch_seconds ? a : m), ads[0]);
-    const maxPlaytime = ads.reduce((m, a) => (a.video_play_time_estimate > m.video_play_time_estimate ? a : m), ads[0]);
-    const weakest = ads.reduce((m, a) => {
+    if (filteredAds.length === 0) return null;
+    const maxReach = filteredAds.reduce((m, a) => (a.reach > m.reach ? a : m), filteredAds[0]);
+    const maxPlays = filteredAds.reduce((m, a) => (a.video_plays > m.video_plays ? a : m), filteredAds[0]);
+    const maxAvg = filteredAds.reduce((m, a) => (a.video_avg_watch_seconds > m.video_avg_watch_seconds ? a : m), filteredAds[0]);
+    const maxPlaytime = filteredAds.reduce((m, a) => (a.video_play_time_estimate > m.video_play_time_estimate ? a : m), filteredAds[0]);
+    const weakest = filteredAds.reduce((m, a) => {
       const scoreA = (maxReach.reach ? a.reach / maxReach.reach : 0) + (maxPlays.video_plays ? a.video_plays / maxPlays.video_plays : 0);
       const scoreM = (maxReach.reach ? m.reach / maxReach.reach : 0) + (maxPlays.video_plays ? m.video_plays / maxPlays.video_plays : 0);
       return scoreA < scoreM ? a : m;
-    }, ads[0]);
+    }, filteredAds[0]);
     return { maxReach, maxPlays, maxAvg, maxPlaytime, weakest };
-  }, [ads]);
+  }, [filteredAds]);
 
   const best = selected.reduce((m, s) => (s.data.results > m.data.results ? s : m), selected[0]);
 
@@ -374,7 +381,7 @@ export default function Dashboard() {
           {badges && (
             <>
               <div className="section-title">Comparador de creativos</div>
-              <p className="section-sub">Insignias calculadas automáticamente sobre los anuncios activos en el rango seleccionado.</p>
+              <p className="section-sub">Insignias calculadas sobre los anuncios de las {selected.length} campaña{selected.length !== 1 ? 's' : ''} seleccionada{selected.length !== 1 ? 's' : ''} arriba.</p>
               <div className="badge-row">
                 <Badge label="MAYOR ALCANCE" name={badges.maxReach.level_name} value={fmt(badges.maxReach.reach)} />
                 <Badge label="MÁS REPRODUCCIONES" name={badges.maxPlays.level_name} value={fmt(badges.maxPlays.video_plays)} />
@@ -383,7 +390,7 @@ export default function Dashboard() {
               </div>
 
               <div className="results-table-wrap">
-                <ResultsTable ads={ads} badges={badges} />
+                <ResultsTable ads={filteredAds} badges={badges} />
               </div>
             </>
           )}
