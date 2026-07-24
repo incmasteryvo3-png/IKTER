@@ -4,8 +4,10 @@ import { fetchMetaInsights } from '@/lib/meta';
 export const maxDuration = 60;
 
 // Consulta a Meta EN VIVO (no lee de Supabase) para el rango de fechas
-// exacto que pida el dashboard. Por eso el selector de fechas siempre
-// refleja el período real, no solo los ultimos 30 dias que guarda el cron.
+// exacto que pida el dashboard. Trae los 3 niveles: campaign, adset y ad.
+// Esto es lo que permite ver conjuntos de anuncios activos solo en ese
+// rango: si un conjunto no tuvo entrega en esas fechas, Meta simplemente
+// no devuelve fila para el, asi que nunca aparece.
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const since = searchParams.get('since');
@@ -23,12 +25,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [campaigns, ads] = await Promise.all([
+    const [campaigns, adsets, ads] = await Promise.all([
       fetchMetaInsights({ adAccountId, token, level: 'campaign', since, until }),
+      fetchMetaInsights({ adAccountId, token, level: 'adset', since, until }),
       fetchMetaInsights({ adAccountId, token, level: 'ad', since, until }),
     ]);
 
-    return NextResponse.json({ ok: true, since, until, campaigns, ads });
+    return NextResponse.json({ ok: true, since, until, campaigns, adsets, ads });
   } catch (err: any) {
     console.error('Error en /api/insights:', err);
     return NextResponse.json({ error: err?.message || 'Error al consultar Meta.' }, { status: 500 });

@@ -1,195 +1,61 @@
-# Mastery Dashboard — Meta Ads en tiempo real + análisis con Gemini
+# Mastery Dashboard — Meta Ads en tiempo real + análisis con Gemini y Claude
 
 ## Novedades de esta versión
 
-- **Identidad de marca**: logo y paleta oficial de Mastery aplicados (`public/logo-mastery.png`).
-- **Selector de fechas**: fecha inicial y final, consulta a Meta en vivo para ese rango exacto (`/api/insights`), no solo los últimos 30 días guardados por el cron.
-- **Comparador de hasta 3 campañas**: selector 1/2/3, con diseño lado a lado en escritorio y embudos completos apilados en celular (responsive real, sin scroll horizontal roto).
-- **Tabla unificada de anuncios**: una fila por anuncio, barras verticales compactas por métrica, insignias automáticas para el mejor y el más débil.
-- **Números nunca se recortan**: el color del embudo es una capa decorativa separada del número, que siempre se muestra completo.
-- **Descarga de informe en PDF**: un clic, sin diálogo de impresión — usa `html2canvas` + `jspdf` (dependencias reales del proyecto, no CDN).
+- **Selector de campañas corregido**: elegir "1" ya muestra un solo selector (el bug era una condición de carrera entre la carga inicial y el clic del usuario; ahora es un efecto independiente sin ambigüedad).
+- **Dos IAs**: cada sección relevante tiene un par de tarjetas — Gemini y Claude (Anthropic) — cada una con su propio botón "Generar análisis" (no se disparan solas, para no gastar cuota sin que lo pidas).
+- **Conjuntos de anuncios por campaña**: debajo de cada campaña seleccionada, se listan sus conjuntos de anuncios activos en el rango de fechas elegido, comparados en el mismo formato de embudo (mismo responsive: lado a lado en escritorio, apilado en celular).
+- **Evento de conversión por conjunto**: cada conjunto muestra qué evento de conversión predominó en sus datos.
+- **Tabla de creativos con 8 eventos**: se quitó la columna "Resultados" y se agregaron 8 columnas de eventos específicos, más una columna "Conjunto" para diferenciar el mismo anuncio si aparece en más de un conjunto.
+- **Análisis con investigación web**: Gemini usa Google Search grounding y Claude usa su herramienta de búsqueda web, para que el análisis considere tendencias y comportamiento actual del algoritmo de Meta, no solo los números crudos.
 
-Todo lo anterior (sync con Meta cada 30 min vía GitHub Actions, botón "Actualizar ahora", análisis con Gemini, guardado en Supabase) sigue funcionando igual que antes — estos cambios son aditivos.
+## ⚠️ Cosas que asumí y que debes verificar
 
+Esto es lo más importante de leer antes de usarlo en serio:
 
-Sistema completo: se conecta a Meta Ads, trae campañas/conjuntos/anuncios
-automáticamente cada cierto tiempo, guarda el histórico en una base de
-datos propia, y usa Gemini para generar un análisis en lenguaje simple.
-El dashboard muestra el embudo comparador (igual al de tus infografías)
-y el comparador de creativos con insignias automáticas.
+1. **Nombres de los 8 eventos de conversión** (`app/page.tsx`, constante `EVENTS`): usé los nombres estándar que Meta suele usar en el arreglo `actions` (`lead`, `view_content`, `schedule`, etc.). El que con más seguridad **no va a calzar** es "Herramienta completada" — ese es un evento personalizado de Mastery y no tengo forma de adivinar su nombre exacto en Meta. Si ves esa columna en ceros, dime el nombre exacto del evento (lo ves en Meta Events Manager, o te ayudo a encontrarlo en el `raw` que ya guardamos) y cambio una línea en el código.
+2. **"Conjunto activo en el rango"**: un conjunto de anuncios aparece en el dashboard si Meta devuelve datos de entrega para él en esas fechas. Es un buen proxy práctico, pero no es lo mismo que revisar la fecha de inicio/fin configurada del conjunto — si un conjunto tuvo *cero* entrega en el rango pero técnicamente seguía "activo" en Meta, no va a aparecer.
+3. **"Evento de conversión" mostrado por conjunto**: lo calculé como el evento con más conteo dentro de ese conjunto (`getDominantEvent`), no el objetivo de optimización real configurado en Meta (eso requeriría otra llamada a la API, a nivel de estructura de la cuenta, no de insights). Es una aproximación razonable pero no 100% exacta.
+4. **Investigación web en los análisis**: activé la búsqueda web para Gemini y Claude porque la pediste explícitamente. Esto tiene **costo adicional por búsqueda** en ambas APIs (aparte del costo normal por análisis) — si notas que se dispara el gasto, dímelo y lo desactivamos o lo dejamos solo para el análisis de creativos (el más importante de investigar).
 
 ## Cómo funciona, de punta a punta
 
+El dashboard consulta a Meta **en vivo** (`/api/insights`) para el rango de fechas exacto que elijas — no depende de datos guardados de antemano. Por separado, un cron en GitHub Actions sincroniza cada 30 minutos hacia Supabase (`/api/sync-meta`), guardando historial para más adelante.
+
+Cada tarjeta de IA (Gemini o Claude) analiza **exactamente los datos que esa sección está mostrando** — la comparación de campañas, un conjunto de anuncios específico, o la tabla de creativos — porque se le manda ese JSON directo desde el navegador, no se recalcula en el servidor.
+
+## Configuración
+
+### Variables de entorno (agrega esta a las que ya tenías en Vercel)
+
 ```
-Meta Graph API
-      │  (cada 30 min, cron automático)
-      ▼
-Función serverless (/api/sync-meta)  ──► guarda snapshot en Supabase
-      ▲
-      │  (también se puede disparar manual)
-Botón "Actualizar ahora" (/api/refresh)
-
-Supabase (base de datos)
-      │
-      ▼
-Dashboard (page.tsx)  ──lee la última data guardada, no llama a Meta directo
-
-Función serverless (/api/analyze) ──► le manda el JSON consolidado a Gemini
-      │                                  y guarda el resumen en Supabase
-      ▼
-Panel "Lectura del equipo" en el dashboard
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-**El punto clave:** el dashboard nunca llama a Meta directamente. Siempre
-lee de Supabase, que se mantiene actualizado solo por el cron. Esto hace
-que la carga sea instantánea y que no dependamos de que Meta responda
-rápido cada vez que alguien abre la página.
+El resto de variables (Supabase, Meta, Gemini, `CRON_SECRET`) son las mismas de antes — revisa `.env.example` para la lista completa.
 
-**Sobre "siempre la data más reciente":** el cron llama a Meta cada 30
-minutos automáticamente, sin que nadie tenga que abrir nada — corre en
-el servidor de Vercel las 24 horas. Además, el botón "Actualizar ahora"
-fuerza una llamada inmediata. Una aclaración honesta: Meta consolida
-algunas métricas de conversión con un retraso de horas por temas de
-atribución, así que "más reciente" significa *lo último que Meta tiene
-disponible*, no necesariamente lo que pasó hace 2 minutos exactos.
+### Pasos generales
 
----
-
-## Paso 1 — Crear la app y el token en Meta
-
-Esto es lo único que se hace directamente en Meta. Sígelo en orden:
-
-### 1.1 Crear una app en Meta for Developers
-
-1. Ve a [developers.facebook.com/apps](https://developers.facebook.com/apps) → **Crear app**.
-2. Tipo de app: **Empresa** (Business).
-3. Ponle un nombre (ej. "Mastery Dashboard") y asócialo a tu **Business Manager**.
-4. Dentro de la app, agrega el producto **Marketing API**.
-
-### 1.2 Crear un System User en el Business Manager
-
-Un token de usuario normal expira en horas. Para algo que corre solo
-24/7, necesitas un **token de System User**, que no expira:
-
-1. Ve a [business.facebook.com](https://business.facebook.com) → **Configuración del negocio → Usuarios → Usuarios del sistema**.
-2. **Añadir** → nombre (ej. "Mastery Sync Bot") → rol **Administrador**.
-3. En **Añadir activos**, selecciona la(s) cuenta(s) publicitaria(s) que
-   quieres monitorear y dale permiso de **Control total** (o al menos
-   "Ver rendimiento").
-4. Click en **Generar nuevo token**:
-   - App: la que creaste en el paso 1.1.
-   - Permisos: marca **`ads_read`** y **`read_insights`**.
-   - Duración: el token de System User **no caduca** por defecto.
-5. Copia el token generado — es lo que va en `META_SYSTEM_USER_TOKEN`.
-   No lo vuelves a ver completo después, guárdalo ya en tu gestor de
-   contraseñas.
-
-### 1.3 Obtener el Ad Account ID
-
-En [Ads Manager](https://adsmanager.facebook.com), arriba a la izquierda
-verás algo como `Cuenta: 123456789`. El ID que necesitas es
-`act_123456789` (con el prefijo `act_`). Eso va en `META_AD_ACCOUNT_ID`.
-
-### 1.4 ¿Necesitas App Review?
-
-- **Para monitorear tus propias cuentas** (las de Mastery, dentro de tu
-  propio Business Manager): **no necesitas App Review**. El System User
-  ya tiene acceso directo porque es admin de esas cuentas — esto se
-  llama "Acceso Estándar" y es suficiente.
-- **Para la Fase 2** (cuando cada cliente conecte *su propia* cuenta
-  publicitaria, fuera de tu Business Manager): ahí sí Meta exige que
-  pases por **verificación de negocio** y, para el permiso `ads_read`
-  en cuentas ajenas, típicamente un **Acceso Avanzado** revisado por
-  Meta (App Review). Es un proceso de Meta, no algo que yo controle;
-  toma de días a semanas. Cuando lleguemos a esa fase te guío el
-  formulario paso a paso.
-
----
-
-## Paso 2 — Supabase (base de datos)
-
-1. [supabase.com](https://supabase.com) → **New project**.
-2. **SQL Editor** → pega y ejecuta `sql/schema.sql` completo.
-3. **Settings → API** → copia:
-   - `Project URL` → `NEXT_PUBLIC_SUPABASE_URL`
-   - `anon public` → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `service_role` → `SUPABASE_SERVICE_ROLE_KEY` (secreta, nunca al frontend)
-
-## Paso 3 — Gemini
-
-[aistudio.google.com/apikey](https://aistudio.google.com/apikey) → genera
-una clave → `GEMINI_API_KEY`.
-
-## Paso 4 — Variables de entorno
-
-Copia `.env.example` a `.env.local` y llena todo. Para `CRON_SECRET`:
-
-```bash
-openssl rand -hex 32
-```
-
-## Paso 5 — Probar en local
-
-```bash
-npm install
-npm run dev
-```
-
-Abre `http://localhost:3000`, presiona **Actualizar ahora** para la
-primera carga de datos reales.
-
-## Paso 6 — Desplegar en Vercel
-
-1. Sube el proyecto a GitHub.
-2. [vercel.com](https://vercel.com) → **Add New → Project** → importa el repo.
-3. Agrega todas las variables de `.env.local` en **Environment Variables**.
-4. Despliega. Vercel lee `vercel.json` automáticamente y activa los crons:
-   - `/api/sync-meta` cada 30 minutos.
-   - `/api/analyze` una vez al día (8am).
-
-A partir de aquí, el sistema se mantiene solo. Cada vez que alguien abra
-la URL, ve la última data disponible — sin depender de que alguien lo
-abra para que se actualice.
-
----
-
-## Fase 2 — plataforma con login para clientes
-
-La base ya está lista (`clients`, `client_members`, RLS en `sql/schema.sql`):
-
-1. Activar **Supabase Auth**.
-2. Un registro en `clients` por cliente; sus cuentas van en `ad_accounts`
-   con ese `client_id`.
-3. Vincular usuarios a clientes en `client_members`.
-4. Filtrar el frontend por el cliente del usuario logueado.
-5. Adaptar `/api/refresh` y `/api/analyze` para recibir `ad_account_id`
-   y validar sesión, en vez de usar una sola cuenta fija.
-6. Si el cliente conecta su propia cuenta de Meta (fuera de tu Business
-   Manager), ahí aplica el tema de App Review mencionado arriba.
-
-## Notas importantes
-
-- `results` se define en `lib/meta.ts` buscando los `action_type`
-  `lead`, `complete_registration`, `submit_application`. Ajústalo al
-  evento de conversión real que configuraste en Meta.
-- `video_play_time` es una **estimación** (reproducciones × tiempo
-  promedio de reproducción), porque Meta no entrega el tiempo total
-  reproducido como campo directo a nivel de anuncio.
-- El botón "Actualizar ahora" es público (no pide login) porque no
-  acepta parámetros del usuario — siempre sincroniza la cuenta fija de
-  las variables de entorno. En Fase 2 debe protegerse con sesión.
+1. Supabase: corre `sql/schema.sql` en el SQL editor (ya es seguro re-ejecutarlo, usa `drop policy if exists`).
+2. Llena `.env.local` con las 9 variables de `.env.example`.
+3. `npm install && npm run dev` para probar local.
+4. Sube a GitHub, conecta con Vercel, agrega las variables de entorno, despliega.
+5. En GitHub → Settings → Secrets → Actions, confirma que `CRON_SECRET` y `SITE_URL` sigan configurados (para el sync cada 30 min).
 
 ## Estructura del proyecto
 
 ```
-sql/schema.sql          → tablas + RLS para Supabase
-lib/meta.ts               → llamadas a la Meta Graph API
-lib/gemini.ts              → llamadas a Gemini y el prompt de análisis
-lib/supabase.ts            → clientes de Supabase (browser + admin)
-lib/syncMeta.ts            → lógica compartida de sincronización
-app/api/sync-meta/        → ruta protegida, usada por el cron
-app/api/refresh/           → ruta pública, botón "Actualizar ahora"
-app/api/analyze/           → genera y guarda el análisis de Gemini
-app/page.tsx               → el dashboard (embudo comparador + creativos)
-app/globals.css            → estilos (tema Mastery)
+sql/schema.sql              → tablas + RLS para Supabase
+lib/meta.ts                  → llamadas a la Meta Graph API (ahora conserva campaign_id, adset_id y el arreglo actions completo)
+lib/gemini.ts                 → Gemini + Google Search grounding
+lib/anthropic.ts              → Claude + herramienta de busqueda web
+lib/supabase.ts                → clientes de Supabase (browser + admin)
+lib/syncMeta.ts                → sincronizacion historica hacia Supabase (cron)
+app/api/insights/              → consulta EN VIVO a Meta (campaign + adset + ad) para cualquier rango de fechas
+app/api/analyze/gemini/        → analisis con Gemini, sin estado (recibe el JSON a analizar)
+app/api/analyze/claude/        → analisis con Claude, sin estado
+app/api/sync-meta/             → cron historico hacia Supabase
+app/api/refresh/                → boton "Actualizar ahora"
+app/page.tsx                    → el dashboard: campañas -> conjuntos de anuncios -> creativos, cada uno con sus tarjetas de IA
+app/globals.css                  → estilos (tema Mastery)
 ```

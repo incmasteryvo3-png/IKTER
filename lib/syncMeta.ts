@@ -1,9 +1,6 @@
 import { fetchMetaInsights } from '@/lib/meta';
 import { supabaseAdmin } from '@/lib/supabase';
 
-// Logica compartida: trae insights de Meta (campaign/adset/ad) de los
-// ultimos 30 dias y los guarda como un nuevo snapshot en Supabase.
-// La usan tanto el cron (cada 30 min) como el boton "Actualizar ahora".
 export async function runMetaSync() {
   const db = supabaseAdmin();
   const token = process.env.META_SYSTEM_USER_TOKEN!;

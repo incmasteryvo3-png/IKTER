@@ -2,8 +2,8 @@ name: Sincronizar datos de Meta cada 30 minutos
 
 on:
   schedule:
-    - cron: '*/30 * * * *'   # cada 30 minutos, las 24 horas
-  workflow_dispatch:          # tambien permite correrlo manualmente desde GitHub
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 jobs:
   sync:
