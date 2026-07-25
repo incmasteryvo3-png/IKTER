@@ -22,6 +22,10 @@ type InsightRow = {
   cost_per_result: number | null;
   actions: { action_type: string; value: string }[];
   optimization_label?: string | null;
+  status_label?: string | null;
+  is_active?: boolean | null;
+  start_time?: string | null;
+  end_time?: string | null;
 };
 
 const COLOR_CLASSES = ['c1', 'c2', 'c3'];
@@ -63,6 +67,12 @@ function clipPath(topPct: number, bottomPct: number) {
 }
 function todayISO(offsetDays = 0) {
   return new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+}
+function shortDate(iso: string | null | undefined) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 function getEventCount(row: InsightRow, types: string[]): number {
   if (!row.actions) return 0;
@@ -204,7 +214,15 @@ export default function Dashboard() {
     const selectedCampaignIds = new Set(selectedCampaigns.map((s) => s.data.level_id));
     return adsets
       .filter((a) => selectedCampaignIds.has(a.campaign_id))
-      .map((a) => ({ id: a.level_id, name: a.level_name, dominant: a.optimization_label || null }));
+      .map((a) => ({
+        id: a.level_id,
+        name: a.level_name,
+        dominant: a.optimization_label || null,
+        statusLabel: a.status_label || null,
+        isActive: a.is_active ?? null,
+        startTime: a.start_time || null,
+        endTime: a.end_time || null,
+      }));
   }, [adsets, selectedCampaigns]);
 
   const filteredAds = useMemo(() => {
@@ -456,13 +474,25 @@ function FunnelGroup({ items }: { items: FunnelItem[] }) {
 }
 
 function AccountBox({ item }: { item: FunnelItem }) {
+  const d = item.data;
+  const hasStatus = d.status_label != null;
+  const from = shortDate(d.start_time);
+  const to = shortDate(d.end_time);
   return (
     <div className={`account-box ${item.cls}`}>
       <div className="account-logo">M</div>
       <div>
-        <div className="account-name">{item.name}</div>
-        <div className="account-label">INVERSIÓN TOTAL &nbsp; <span className="account-spend">${item.data.spend.toFixed(2)}</span></div>
+        <div className="account-name">
+          {item.name}
+          {hasStatus && (
+            <span className={`status-pill ${d.is_active ? 'is-active' : 'is-inactive'}`}>
+              {d.is_active ? '● Activo' : `○ ${d.status_label}`}
+            </span>
+          )}
+        </div>
+        <div className="account-label">INVERSIÓN TOTAL &nbsp; <span className="account-spend">${d.spend.toFixed(2)}</span></div>
         {item.badge && <div className="account-event">Evento de conversión: {item.badge}</div>}
+        {from && <div className="account-event">Período activo: {from}{to ? ` – ${to}` : ' – en curso'}</div>}
       </div>
     </div>
   );
@@ -521,7 +551,15 @@ function AiCard({ provider, title, payload }: { provider: 'gemini' | 'claude'; t
 }
 
 type AdRow = InsightRow & { adsetId: string };
-type AdsetGroup = { id: string; name: string; dominant: string | null };
+type AdsetGroup = {
+  id: string;
+  name: string;
+  dominant: string | null;
+  statusLabel: string | null;
+  isActive: boolean | null;
+  startTime: string | null;
+  endTime: string | null;
+};
 
 function ResultsTable({ ads, badges, orderedAdsets }: { ads: AdRow[]; badges: any; orderedAdsets: AdsetGroup[] }) {
   function Cell({ value, isBest, isWeak, format }: { value: number; isBest: boolean; isWeak: boolean; format: (v: number) => string }) {
@@ -546,11 +584,21 @@ function ResultsTable({ ads, badges, orderedAdsets }: { ads: AdRow[]; badges: an
         {orderedAdsets.map((as) => {
           const groupAds = ads.filter((a) => a.adsetId === as.id);
           if (groupAds.length === 0) return null;
+          const from = shortDate(as.startTime);
+          const to = shortDate(as.endTime);
           return (
             <>
               <tr className="adset-group-row" key={`group-${as.id}`}>
                 <td colSpan={colCount}>
-                  {as.name} — {as.dominant ? <>Conversión: <span className="conv">{as.dominant}</span></> : <span className="conv">Sin conversiones en el período</span>}
+                  {as.name}
+                  {as.statusLabel && (
+                    <span className={`status-pill ${as.isActive ? 'is-active' : 'is-inactive'}`}>
+                      {as.isActive ? '● Activo' : `○ ${as.statusLabel}`}
+                    </span>
+                  )}
+                  {' — '}
+                  {as.dominant ? <>Conversión: <span className="conv">{as.dominant}</span></> : <span className="conv">Sin conversiones en el período</span>}
+                  {from && <span className="group-dates"> · Período: {from}{to ? ` – ${to}` : ' – en curso'}</span>}
                 </td>
               </tr>
               {groupAds.map((a) => {

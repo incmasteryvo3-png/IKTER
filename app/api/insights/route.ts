@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchMetaInsights, fetchAdsetGoals } from '@/lib/meta';
+import { fetchMetaInsights, fetchAdsetGoals, fetchCampaignStatus } from '@/lib/meta';
 
 export const maxDuration = 60;
 
@@ -29,10 +29,35 @@ export async function GET(req: NextRequest) {
       fetchMetaInsights({ adAccountId, token, level: 'ad', since, until }),
     ]);
 
-    const goals = await fetchAdsetGoals({ adsetIds: adsetsRaw.map((a) => a.level_id), token });
-    const adsets = adsetsRaw.map((a) => ({ ...a, optimization_label: goals[a.level_id] || null }));
+    const [goals, campaignStatus] = await Promise.all([
+      fetchAdsetGoals({ adsetIds: adsetsRaw.map((a) => a.level_id), token }),
+      fetchCampaignStatus({ campaignIds: campaigns.map((c) => c.level_id), token }),
+    ]);
 
-    return NextResponse.json({ ok: true, since, until, campaigns, adsets, ads });
+    const adsets = adsetsRaw.map((a) => {
+      const meta = goals[a.level_id];
+      return {
+        ...a,
+        optimization_label: meta?.conversionLabel || null,
+        status_label: meta?.status || null,
+        is_active: meta?.isActive ?? null,
+        start_time: meta?.startTime || null,
+        end_time: meta?.endTime || null,
+      };
+    });
+
+    const campaignsWithStatus = campaigns.map((c) => {
+      const st = campaignStatus[c.level_id];
+      return {
+        ...c,
+        status_label: st?.status || null,
+        is_active: st?.isActive ?? null,
+        start_time: st?.startTime || null,
+        end_time: st?.endTime || null,
+      };
+    });
+
+    return NextResponse.json({ ok: true, since, until, campaigns: campaignsWithStatus, adsets, ads });
   } catch (err: any) {
     console.error('Error en /api/insights:', err);
     return NextResponse.json({ error: err?.message || 'Error al consultar Meta.' }, { status: 500 });

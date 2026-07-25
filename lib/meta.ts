@@ -139,21 +139,81 @@ const CUSTOM_EVENT_TYPE_LABELS: Record<string, string> = {
   SUBSCRIBE: 'Suscribirse', // confirmado 25/jul/2026 en conjunto "SCALE ONE - Copia"
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  ACTIVE: 'Activo',
+  PAUSED: 'Pausado',
+  ADSET_PAUSED: 'Pausado',
+  CAMPAIGN_PAUSED: 'Pausado (por la campaña)',
+  ARCHIVED: 'Archivado',
+  DELETED: 'Eliminado',
+  IN_PROCESS: 'En revisión',
+  WITH_ISSUES: 'Con problemas',
+  PENDING_REVIEW: 'En revisión',
+  DISAPPROVED: 'Rechazado',
+};
+
+export type EntityStatus = {
+  status: string;
+  isActive: boolean;
+  startTime: string | null;
+  endTime: string | null;
+};
+
 /**
- * Trae el objetivo de optimizacion REAL configurado en cada conjunto de
- * anuncios (no una suposicion contando acciones). Usa la API de batch de
- * Meta para resolverlos todos en una o dos llamadas, sin importar cuantos
- * conjuntos haya.
+ * Trae el estado (activo/pausado) y las fechas de programacion reales
+ * de un conjunto de campañas, en un solo lote. Nota: en el objeto
+ * "campaign" de Meta el campo de fecha de fin se llama "stop_time",
+ * a diferencia de "adset" que usa "end_time" - por eso esta funcion es
+ * separada de fetchAdsetGoals en vez de compartir el mismo query.
  */
-export async function fetchAdsetGoals(params: { adsetIds: string[]; token: string }): Promise<Record<string, string>> {
+export async function fetchCampaignStatus(params: { campaignIds: string[]; token: string }): Promise<Record<string, EntityStatus>> {
+  const { campaignIds, token } = params;
+  const uniqueIds = Array.from(new Set(campaignIds)).filter(Boolean);
+  if (uniqueIds.length === 0) return {};
+
+  const batch = uniqueIds.map((id) => ({ method: 'GET', relative_url: `${id}?fields=effective_status,start_time,stop_time` }));
+  const rows = await metaBatch(batch, token);
+
+  const result: Record<string, EntityStatus> = {};
+  uniqueIds.forEach((id, i) => {
+    const body = rows[i];
+    if (!body) return;
+    const effectiveStatus = body.effective_status as string | undefined;
+    result[id] = {
+      status: (effectiveStatus && STATUS_LABELS[effectiveStatus]) || effectiveStatus || 'Desconocido',
+      isActive: effectiveStatus === 'ACTIVE',
+      startTime: body.start_time || null,
+      endTime: body.stop_time || null,
+    };
+  });
+  return result;
+}
+
+export type AdsetMeta = {
+  conversionLabel: string;
+  status: string;        // ya traducido cuando se conoce, o el valor crudo
+  isActive: boolean;
+  startTime: string | null;
+  endTime: string | null;
+};
+
+/**
+ * Trae el objetivo de optimizacion, el estado (activo/pausado) y las
+ * fechas de programacion REALES de cada conjunto de anuncios - todo en
+ * el mismo lote de llamadas. Nada de esto se adivina.
+ */
+export async function fetchAdsetGoals(params: { adsetIds: string[]; token: string }): Promise<Record<string, AdsetMeta>> {
   const { adsetIds, token } = params;
   const uniqueIds = Array.from(new Set(adsetIds)).filter(Boolean);
   if (uniqueIds.length === 0) return {};
 
-  const batch1 = uniqueIds.map((id) => ({ method: 'GET', relative_url: `${id}?fields=optimization_goal,promoted_object` }));
+  const batch1 = uniqueIds.map((id) => ({
+    method: 'GET',
+    relative_url: `${id}?fields=optimization_goal,promoted_object,effective_status,start_time,end_time`,
+  }));
   const rows = await metaBatch(batch1, token);
 
-  const result: Record<string, string> = {};
+  const result: Record<string, AdsetMeta> = {};
   const customConversionIds = new Set<string>();
 
   uniqueIds.forEach((id, i) => {
@@ -161,26 +221,34 @@ export async function fetchAdsetGoals(params: { adsetIds: string[]; token: strin
     if (!body) return;
     const goal = body.optimization_goal as string | undefined;
     const promoted = body.promoted_object || {};
+    const effectiveStatus = body.effective_status as string | undefined;
 
+    let conversionLabel: string;
     if (promoted.custom_conversion_id) {
       // Conversion personalizada creada por Mastery en Events Manager:
       // el nombre exacto se trae directo de Meta, sin traducir nada.
       customConversionIds.add(promoted.custom_conversion_id);
-      result[id] = `__CUSTOM__${promoted.custom_conversion_id}`; // se resuelve abajo
+      conversionLabel = `__CUSTOM__${promoted.custom_conversion_id}`; // se resuelve abajo
     } else if (promoted.custom_event_type && CUSTOM_EVENT_TYPE_LABELS[promoted.custom_event_type]) {
-      // Evento estandar de Meta, con traduccion ya confirmada.
-      result[id] = CUSTOM_EVENT_TYPE_LABELS[promoted.custom_event_type];
+      conversionLabel = CUSTOM_EVENT_TYPE_LABELS[promoted.custom_event_type];
     } else if (promoted.custom_event_type) {
       // Evento estandar de Meta, pero aun sin confirmar su traduccion
       // exacta -> se muestra el valor tecnico crudo, nunca una
-      // traduccion adivinada. Cuando se vea esto, hay que revisar el
-      // texto real en Meta Ads Manager y agregarlo a CUSTOM_EVENT_TYPE_LABELS.
-      result[id] = `${promoted.custom_event_type} (sin traducir)`;
+      // traduccion adivinada.
+      conversionLabel = `${promoted.custom_event_type} (sin traducir)`;
     } else if (goal && OPTIMIZATION_GOAL_LABELS[goal]) {
-      result[id] = OPTIMIZATION_GOAL_LABELS[goal];
+      conversionLabel = OPTIMIZATION_GOAL_LABELS[goal];
     } else {
-      result[id] = goal ? `${goal} (sin traducir)` : 'No detectado';
+      conversionLabel = goal ? `${goal} (sin traducir)` : 'No detectado';
     }
+
+    result[id] = {
+      conversionLabel,
+      status: (effectiveStatus && STATUS_LABELS[effectiveStatus]) || effectiveStatus || 'Desconocido',
+      isActive: effectiveStatus === 'ACTIVE',
+      startTime: body.start_time || null,
+      endTime: body.end_time || null,
+    };
   });
 
   // Si algun conjunto usa una "conversion personalizada" (creada a mano
@@ -194,9 +262,9 @@ export async function fetchAdsetGoals(params: { adsetIds: string[]; token: strin
     ccIds.forEach((id, i) => { nameById[id] = ccRows[i]?.name || 'Conversión personalizada'; });
 
     for (const adsetId of Object.keys(result)) {
-      if (result[adsetId].startsWith('__CUSTOM__')) {
-        const ccId = result[adsetId].replace('__CUSTOM__', '');
-        result[adsetId] = nameById[ccId] || 'Conversión personalizada';
+      if (result[adsetId].conversionLabel.startsWith('__CUSTOM__')) {
+        const ccId = result[adsetId].conversionLabel.replace('__CUSTOM__', '');
+        result[adsetId].conversionLabel = nameById[ccId] || 'Conversión personalizada';
       }
     }
   }
