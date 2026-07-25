@@ -2,13 +2,18 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_MODEL = 'claude-sonnet-5';
 
 export async function generateAnthropicAnalysis(consolidatedData: unknown, promptOverride?: string) {
+  const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
+  if (!apiKey) {
+    throw new Error('El análisis con Claude todavía no está activado en este ambiente. Vuelve a intentarlo más tarde.');
+  }
+
   const prompt = promptOverride || buildPrompt(consolidatedData);
 
   const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
+      'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({

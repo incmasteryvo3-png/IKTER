@@ -136,13 +136,18 @@ create policy "Los usuarios ven solo sus analisis de IA"
     )
   );
 
--- Lectura abierta temporal (solo mientras no exista login, Fase 1)
+-- Antes esto era lectura publica (using (true)) porque no existia login.
+-- Ahora que si hay login real, se exige estar autenticado - cualquier
+-- usuario con sesion iniciada puede leer (todavia no separado por
+-- cliente, eso es la Fase 2 real cuando existan clientes externos).
 drop policy if exists "fase1_lectura_publica_snapshots" on insight_snapshots;
-create policy "fase1_lectura_publica_snapshots"
+drop policy if exists "usuarios_autenticados_leen_snapshots" on insight_snapshots;
+create policy "usuarios_autenticados_leen_snapshots"
   on insight_snapshots for select
-  using (true);
+  using (auth.role() = 'authenticated');
 
 drop policy if exists "fase1_lectura_publica_resumenes" on ai_summaries;
-create policy "fase1_lectura_publica_resumenes"
+drop policy if exists "usuarios_autenticados_leen_resumenes" on ai_summaries;
+create policy "usuarios_autenticados_leen_resumenes"
   on ai_summaries for select
-  using (true);
+  using (auth.role() = 'authenticated');

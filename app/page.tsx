@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase';
 
 type InsightRow = {
@@ -88,6 +89,7 @@ function getEventCount(row: InsightRow, types: string[]): number {
 type FunnelItem = { id: string; name: string; cls: string; data: InsightRow; badge?: string | null };
 
 export default function Dashboard() {
+  const router = useRouter();
   const [since, setSince] = useState(todayISO(-30));
   const [until, setUntil] = useState(todayISO());
   const [nCampaigns, setNCampaigns] = useState(2);
@@ -149,6 +151,12 @@ export default function Dashboard() {
       return next.slice(0, nCampaigns);
     });
   }, [nCampaigns, campaigns]);
+
+  async function handleLogout() {
+    await supabaseBrowser.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  }
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -262,6 +270,7 @@ export default function Dashboard() {
           <button className="btn ghost" onClick={handleDownloadPdf} disabled={downloadingPdf}>
             {downloadingPdf ? 'Generando PDF…' : '⬇ Descargar informe (PDF)'}
           </button>
+          <button className="btn" onClick={handleLogout}>Cerrar sesión</button>
         </div>
       </div>
 

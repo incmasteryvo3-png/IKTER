@@ -1,5 +1,16 @@
 # Mastery Dashboard — Meta Ads en tiempo real + análisis con Gemini y Claude
 
+## Login (nuevo)
+
+El dashboard ahora exige iniciar sesión — nadie puede entrar sin cuenta. No hay pantalla de registro a propósito (es un equipo controlado, no un producto público). Para crear el primer usuario:
+
+1. Ve a tu proyecto de Supabase → **Authentication → Users → "Add user"**.
+2. Completa correo y contraseña.
+3. **Importante**: marca la opción **"Auto Confirm User"** al crearlo (o confírmalo después manualmente) — si no, Supabase le exige confirmar el correo antes de poder entrar, y como no hay flujo de confirmación configurado en este proyecto, quedaría bloqueado.
+4. Repite por cada persona de tu equipo que necesite acceso.
+
+Para revocar el acceso de alguien, simplemente elimina o desactiva su usuario en esa misma pantalla — no requiere tocar código.
+
 ## Novedades de esta versión
 
 - **Selector de campañas corregido**: elegir "1" ya muestra un solo selector (el bug era una condición de carrera entre la carga inicial y el clic del usuario; ahora es un efecto independiente sin ambigüedad).
