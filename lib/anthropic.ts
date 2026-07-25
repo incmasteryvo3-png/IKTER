@@ -18,7 +18,7 @@ export async function generateAnthropicAnalysis(consolidatedData: unknown, promp
     },
     body: JSON.stringify({
       model: ANTHROPIC_MODEL,
-      max_tokens: 1500,
+      max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }],
       // Herramienta de busqueda web: permite que Claude consulte tendencias
       // y comportamiento actual del algoritmo de Meta antes de responder.
@@ -32,7 +32,13 @@ export async function generateAnthropicAnalysis(consolidatedData: unknown, promp
 
   const textBlocks = (json.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text);
   const text = textBlocks.join('\n');
-  if (!text) throw new Error('Claude no devolvio texto utilizable.');
+  if (!text) {
+    const blockTypes = (json.content || []).map((c: any) => c.type).join(', ') || 'ninguno';
+    throw new Error(
+      `Claude no devolvió texto utilizable (stop_reason: ${json.stop_reason || 'desconocido'}, bloques recibidos: ${blockTypes}). ` +
+      `Puede ser que se haya quedado sin espacio de tokens usando la búsqueda web — intenta de nuevo.`
+    );
+  }
   return text as string;
 }
 
