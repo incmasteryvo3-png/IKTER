@@ -193,6 +193,12 @@ export async function fetchAdsetGoals(params: { adsetIds: string[]; token: strin
   return result;
 }
 
+function extractAvgWatchSeconds(actions: any[] | undefined): number {
+  if (!actions || actions.length === 0) return 0;
+  const value = actions[0]?.value;
+  return value ? parseFloat(value) : 0;
+}
+
 async function metaBatch(batch: { method: string; relative_url: string }[], token: string): Promise<any[]> {
   // La API de batch de Meta acepta maximo 50 solicitudes por llamada.
   const chunks: typeof batch[] = [];
