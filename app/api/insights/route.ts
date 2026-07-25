@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchMetaInsights } from '@/lib/meta';
+import { fetchMetaInsights, fetchAdsetGoals } from '@/lib/meta';
 
 export const maxDuration = 60;
 
 // Consulta a Meta EN VIVO (no lee de Supabase) para el rango de fechas
-// exacto que pida el dashboard. Trae los 3 niveles: campaign, adset y ad.
-// Esto es lo que permite ver conjuntos de anuncios activos solo en ese
-// rango: si un conjunto no tuvo entrega en esas fechas, Meta simplemente
-// no devuelve fila para el, asi que nunca aparece.
+// exacto que pida el dashboard. Trae los 3 niveles: campaign, adset y ad,
+// mas el objetivo de optimizacion REAL de cada conjunto (no inferido).
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const since = searchParams.get('since');
@@ -25,11 +23,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [campaigns, adsets, ads] = await Promise.all([
+    const [campaigns, adsetsRaw, ads] = await Promise.all([
       fetchMetaInsights({ adAccountId, token, level: 'campaign', since, until }),
       fetchMetaInsights({ adAccountId, token, level: 'adset', since, until }),
       fetchMetaInsights({ adAccountId, token, level: 'ad', since, until }),
     ]);
+
+    const goals = await fetchAdsetGoals({ adsetIds: adsetsRaw.map((a) => a.level_id), token });
+    const adsets = adsetsRaw.map((a) => ({ ...a, optimization_label: goals[a.level_id] || null }));
 
     return NextResponse.json({ ok: true, since, until, campaigns, adsets, ads });
   } catch (err: any) {

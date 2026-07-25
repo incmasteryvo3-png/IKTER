@@ -21,6 +21,7 @@ type InsightRow = {
   results: number;
   cost_per_result: number | null;
   actions: { action_type: string; value: string }[];
+  optimization_label?: string | null;
 };
 
 const COLOR_CLASSES = ['c1', 'c2', 'c3'];
@@ -67,14 +68,12 @@ function getEventCount(row: InsightRow, types: string[]): number {
   if (!row.actions) return 0;
   return row.actions.filter((a) => types.includes(a.action_type)).reduce((s, a) => s + parseInt(a.value || '0', 10), 0);
 }
-function getDominantEvent(row: InsightRow): string | null {
-  let best: { label: string; count: number } | null = null;
-  for (const ev of EVENTS) {
-    const count = getEventCount(row, ev.types);
-    if (count > 0 && (!best || count > best.count)) best = { label: ev.label, count };
-  }
-  return best ? `${best.label} (${best.count})` : null;
-}
+// Nota: antes habia aqui una funcion "getDominantEvent" que adivinaba el
+// evento de conversion contando cuales acciones tuvieron mas ocurrencias.
+// Se elimino porque podia mostrar un evento equivocado (el que mas
+// disparo, no el que realmente se configuro como objetivo). Ahora el
+// conjunto de anuncios trae su "optimization_label" real desde Meta
+// (ver lib/meta.ts -> fetchAdsetGoals), que es la fuente de verdad.
 
 type FunnelItem = { id: string; name: string; cls: string; data: InsightRow; badge?: string | null };
 
@@ -205,7 +204,7 @@ export default function Dashboard() {
     const selectedCampaignIds = new Set(selectedCampaigns.map((s) => s.data.level_id));
     return adsets
       .filter((a) => selectedCampaignIds.has(a.campaign_id))
-      .map((a) => ({ id: a.level_id, name: a.level_name, dominant: getDominantEvent(a) }));
+      .map((a) => ({ id: a.level_id, name: a.level_name, dominant: a.optimization_label || null }));
   }, [adsets, selectedCampaigns]);
 
   const filteredAds = useMemo(() => {
@@ -293,7 +292,7 @@ export default function Dashboard() {
           {selectedCampaigns.map((camp) => {
             const campAdsets: FunnelItem[] = adsets
               .filter((a) => a.campaign_id === camp.data.level_id)
-              .map((a, i) => ({ id: a.level_id, name: a.level_name, cls: COLOR_CLASSES[i % 3], data: a, badge: getDominantEvent(a) }));
+              .map((a, i) => ({ id: a.level_id, name: a.level_name, cls: COLOR_CLASSES[i % 3], data: a, badge: a.optimization_label || null }));
 
             return (
               <div key={camp.id}>

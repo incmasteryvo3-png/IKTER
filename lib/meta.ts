@@ -106,8 +106,110 @@ function sumActionValues(actions: any[] | undefined): number {
   return actions.reduce((sum, a) => sum + parseInt(a.value || '0', 10), 0);
 }
 
-function extractAvgWatchSeconds(actions: any[] | undefined): number {
-  if (!actions || actions.length === 0) return 0;
-  const value = actions[0]?.value;
-  return value ? parseFloat(value) : 0;
+// Mapeo de los valores oficiales de Meta a etiquetas en español.
+// A diferencia del "evento dominante" (que contaba acciones y podia
+// equivocarse), esto lee la configuracion REAL del conjunto de anuncios.
+const OPTIMIZATION_GOAL_LABELS: Record<string, string> = {
+  LEAD_GENERATION: 'Generación de clientes potenciales',
+  QUALITY_LEAD: 'Clientes potenciales de calidad',
+  LANDING_PAGE_VIEWS: 'Visitas a la página de destino',
+  LINK_CLICKS: 'Clics en el enlace',
+  IMPRESSIONS: 'Impresiones',
+  REACH: 'Alcance',
+  THRUPLAY: 'Reproducciones completas de video',
+  APP_INSTALLS: 'Instalaciones de la app',
+  CONVERSATIONS: 'Conversaciones iniciadas',
+  POST_ENGAGEMENT: 'Interacción con la publicación',
+  VALUE: 'Valor de conversión',
+  OFFSITE_CONVERSIONS: 'Conversión personalizada', // se refina abajo con promoted_object
+};
+
+const CUSTOM_EVENT_TYPE_LABELS: Record<string, string> = {
+  LEAD: 'Cliente potencial',
+  COMPLETE_REGISTRATION: 'Formulario completado',
+  SUBMIT_APPLICATION: 'Solicitud enviada',
+  SCHEDULE: 'Cita agendada',
+  SUBSCRIBE: 'Suscripción',
+  VIEW_CONTENT: 'Contenido visto',
+  PAGE_VIEW: 'Page view',
+  PURCHASE: 'Compra',
+  START_TRIAL: 'Inicio de prueba',
+  CONTACT: 'Contacto',
+};
+
+/**
+ * Trae el objetivo de optimizacion REAL configurado en cada conjunto de
+ * anuncios (no una suposicion contando acciones). Usa la API de batch de
+ * Meta para resolverlos todos en una o dos llamadas, sin importar cuantos
+ * conjuntos haya.
+ */
+export async function fetchAdsetGoals(params: { adsetIds: string[]; token: string }): Promise<Record<string, string>> {
+  const { adsetIds, token } = params;
+  const uniqueIds = Array.from(new Set(adsetIds)).filter(Boolean);
+  if (uniqueIds.length === 0) return {};
+
+  const batch1 = uniqueIds.map((id) => ({ method: 'GET', relative_url: `${id}?fields=optimization_goal,promoted_object` }));
+  const rows = await metaBatch(batch1, token);
+
+  const result: Record<string, string> = {};
+  const customConversionIds = new Set<string>();
+
+  uniqueIds.forEach((id, i) => {
+    const body = rows[i];
+    if (!body) return;
+    const goal = body.optimization_goal as string | undefined;
+    const promoted = body.promoted_object || {};
+
+    if (promoted.custom_conversion_id) {
+      customConversionIds.add(promoted.custom_conversion_id);
+      result[id] = `__CUSTOM__${promoted.custom_conversion_id}`; // se resuelve abajo
+    } else if (promoted.custom_event_type && CUSTOM_EVENT_TYPE_LABELS[promoted.custom_event_type]) {
+      result[id] = CUSTOM_EVENT_TYPE_LABELS[promoted.custom_event_type];
+    } else if (goal && OPTIMIZATION_GOAL_LABELS[goal]) {
+      result[id] = OPTIMIZATION_GOAL_LABELS[goal];
+    } else {
+      result[id] = goal || 'No detectado';
+    }
+  });
+
+  // Si algun conjunto usa una "conversion personalizada" (creada a mano
+  // en Events Manager), su nombre real no viene en el paso anterior -
+  // hay que pedirlo aparte.
+  if (customConversionIds.size > 0) {
+    const ccIds = Array.from(customConversionIds);
+    const batch2 = ccIds.map((id) => ({ method: 'GET', relative_url: `${id}?fields=name` }));
+    const ccRows = await metaBatch(batch2, token);
+    const nameById: Record<string, string> = {};
+    ccIds.forEach((id, i) => { nameById[id] = ccRows[i]?.name || 'Conversión personalizada'; });
+
+    for (const adsetId of Object.keys(result)) {
+      if (result[adsetId].startsWith('__CUSTOM__')) {
+        const ccId = result[adsetId].replace('__CUSTOM__', '');
+        result[adsetId] = nameById[ccId] || 'Conversión personalizada';
+      }
+    }
+  }
+
+  return result;
+}
+
+async function metaBatch(batch: { method: string; relative_url: string }[], token: string): Promise<any[]> {
+  // La API de batch de Meta acepta maximo 50 solicitudes por llamada.
+  const chunks: typeof batch[] = [];
+  for (let i = 0; i < batch.length; i += 50) chunks.push(batch.slice(i, i + 50));
+
+  const allBodies: any[] = [];
+  for (const chunk of chunks) {
+    const res = await fetch(`${BASE_URL}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: token, batch: chunk }),
+    });
+    const json = await res.json();
+    if (!Array.isArray(json)) throw new Error(`Meta batch API error: ${JSON.stringify(json)}`);
+    for (const item of json) {
+      allBodies.push(item?.body ? JSON.parse(item.body) : null);
+    }
+  }
+  return allBodies;
 }
