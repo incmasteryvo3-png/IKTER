@@ -106,35 +106,37 @@ function sumActionValues(actions: any[] | undefined): number {
   return actions.reduce((sum, a) => sum + parseInt(a.value || '0', 10), 0);
 }
 
-// Mapeo de los valores oficiales de Meta a etiquetas en español.
-// A diferencia del "evento dominante" (que contaba acciones y podia
-// equivocarse), esto lee la configuracion REAL del conjunto de anuncios.
+// ============================================================
+// REGLA DE ORO: nunca se muestra una traduccion que no este
+// confirmada palabra por palabra contra lo que Meta muestra en su
+// propia interfaz. Si un valor no esta en este diccionario, se
+// muestra el nombre tecnico crudo (ej. "SUBSCRIBE") en vez de
+// arriesgar una traduccion que podria estar mal. Asi nunca hay
+// margen de duda: o es exacto, o se ve claramente como "sin traducir"
+// y se sabe que hay que agregarlo aqui.
+//
+// Como agregar un evento nuevo: cuando aparezca un valor en mayusculas
+// sin traducir (ej. "SCHEDULE") en el dashboard, revisa el desplegable
+// "Evento de conversion" de ese conjunto en Meta Ads Manager, copia el
+// texto EXACTO que ahi aparece, y agrega la linea correspondiente abajo.
+// ============================================================
 const OPTIMIZATION_GOAL_LABELS: Record<string, string> = {
-  LEAD_GENERATION: 'Generación de clientes potenciales',
-  QUALITY_LEAD: 'Clientes potenciales de calidad',
-  LANDING_PAGE_VIEWS: 'Visitas a la página de destino',
   LINK_CLICKS: 'Clics en el enlace',
   IMPRESSIONS: 'Impresiones',
   REACH: 'Alcance',
-  THRUPLAY: 'Reproducciones completas de video',
-  APP_INSTALLS: 'Instalaciones de la app',
-  CONVERSATIONS: 'Conversaciones iniciadas',
-  POST_ENGAGEMENT: 'Interacción con la publicación',
-  VALUE: 'Valor de conversión',
-  OFFSITE_CONVERSIONS: 'Conversión personalizada', // se refina abajo con promoted_object
+  LANDING_PAGE_VIEWS: 'Visitas a la página de destino',
+  THRUPLAY: 'Reproducciones de video ThruPlay',
+  // OFFSITE_CONVERSIONS y similares NO se traducen aqui a proposito:
+  // en esos casos el evento real y mas especifico viene de
+  // promoted_object (custom_event_type o custom_conversion_id), que
+  // es lo que de verdad configuraste, no la categoria general.
 };
 
+// Confirmado contra la interfaz real de Meta (Ads Manager en español),
+// verificado captura por captura junto con Mastery. Solo se agregan
+// entradas aqui cuando estan 100% confirmadas.
 const CUSTOM_EVENT_TYPE_LABELS: Record<string, string> = {
-  LEAD: 'Cliente potencial',
-  COMPLETE_REGISTRATION: 'Formulario completado',
-  SUBMIT_APPLICATION: 'Solicitud enviada',
-  SCHEDULE: 'Cita agendada',
-  SUBSCRIBE: 'Suscripción',
-  VIEW_CONTENT: 'Contenido visto',
-  PAGE_VIEW: 'Page view',
-  PURCHASE: 'Compra',
-  START_TRIAL: 'Inicio de prueba',
-  CONTACT: 'Contacto',
+  SUBSCRIBE: 'Suscribirse', // confirmado 25/jul/2026 en conjunto "SCALE ONE - Copia"
 };
 
 /**
@@ -161,14 +163,23 @@ export async function fetchAdsetGoals(params: { adsetIds: string[]; token: strin
     const promoted = body.promoted_object || {};
 
     if (promoted.custom_conversion_id) {
+      // Conversion personalizada creada por Mastery en Events Manager:
+      // el nombre exacto se trae directo de Meta, sin traducir nada.
       customConversionIds.add(promoted.custom_conversion_id);
       result[id] = `__CUSTOM__${promoted.custom_conversion_id}`; // se resuelve abajo
     } else if (promoted.custom_event_type && CUSTOM_EVENT_TYPE_LABELS[promoted.custom_event_type]) {
+      // Evento estandar de Meta, con traduccion ya confirmada.
       result[id] = CUSTOM_EVENT_TYPE_LABELS[promoted.custom_event_type];
+    } else if (promoted.custom_event_type) {
+      // Evento estandar de Meta, pero aun sin confirmar su traduccion
+      // exacta -> se muestra el valor tecnico crudo, nunca una
+      // traduccion adivinada. Cuando se vea esto, hay que revisar el
+      // texto real en Meta Ads Manager y agregarlo a CUSTOM_EVENT_TYPE_LABELS.
+      result[id] = `${promoted.custom_event_type} (sin traducir)`;
     } else if (goal && OPTIMIZATION_GOAL_LABELS[goal]) {
       result[id] = OPTIMIZATION_GOAL_LABELS[goal];
     } else {
-      result[id] = goal || 'No detectado';
+      result[id] = goal ? `${goal} (sin traducir)` : 'No detectado';
     }
   });
 
