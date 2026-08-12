@@ -37,36 +37,61 @@ Cada tarjeta de IA (Gemini o Claude) analiza **exactamente los datos que esa sec
 
 ## Configuración
 
-### Variables de entorno (agrega esta a las que ya tenías en Vercel)
+### Variables de entorno (agrega estas a las que ya tenías en Vercel)
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
+
+# GA4 — desempeño del sitio web
+GA4_PROPERTY_ID=123456789
+GA4_SERVICE_ACCOUNT_EMAIL=nombre@proyecto.iam.gserviceaccount.com
+GA4_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
 El resto de variables (Supabase, Meta, Gemini, `CRON_SECRET`) son las mismas de antes — revisa `.env.example` para la lista completa.
 
 ### Pasos generales
 
-1. Supabase: corre `sql/schema.sql` en el SQL editor (ya es seguro re-ejecutarlo, usa `drop policy if exists`).
-2. Llena `.env.local` con las 9 variables de `.env.example`.
+1. Supabase: corre `sql/schema.sql` y luego `sql/schema_ga4.sql` en el SQL editor (ambos son seguros de re-ejecutar, usan `drop policy if exists`).
+2. Llena `.env.local` con las variables de `.env.example` + las 3 de GA4 de arriba.
 3. `npm install && npm run dev` para probar local.
 4. Sube a GitHub, conecta con Vercel, agrega las variables de entorno, despliega.
-5. En GitHub → Settings → Secrets → Actions, confirma que `CRON_SECRET` y `SITE_URL` sigan configurados (para el sync cada 30 min).
+5. En GitHub → Settings → Secrets → Actions, confirma que `CRON_SECRET` y `SITE_URL` sigan configurados (ahora sincronizan Meta **y** GA4 cada 30 min, cada uno con su propio workflow).
+
+### Configurar el acceso a GA4
+
+Ya tienes una cuenta de servicio con acceso a Google Cloud, así que solo falta darle acceso a **esta** propiedad de GA4 específicamente:
+
+1. En [Google Cloud Console](https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com), confirma que la **Google Analytics Data API** esté habilitada en el proyecto de esa cuenta de servicio.
+2. En GA4 → Admin → **Administración de acceso a la propiedad**, agrega el email de la cuenta de servicio (termina en `.iam.gserviceaccount.com`) como **Viewer** (Lector).
+3. Copia el **Property ID** (Admin → Configuración de la propiedad — es un número, no el Measurement ID que empieza con "G-").
+4. Genera (o reusa) una clave JSON de esa cuenta de servicio y saca de ahí el `client_email` y el `private_key` para las variables de entorno de arriba.
+
+### Meta → GA4 (eventos de conversión)
+
+Esto vive **fuera** de este repositorio, en `ga4-meta-bridge/` (carpeta hermana a `IKTER-main/`) — son los mismos eventos de conversión (leads, compras) que hoy le mandas a Meta, replicados hacia GA4. Revisa el README de esa carpeta para la configuración y las decisiones pendientes antes de instalarlo (sobre todo la parte de `client_id`, que es la que determina si el evento queda bien conectado a la sesión real en GA4).
 
 ## Estructura del proyecto
 
 ```
-sql/schema.sql              → tablas + RLS para Supabase
+sql/schema.sql              → tablas + RLS para Supabase (Meta)
+sql/schema_ga4.sql            → tablas + RLS para Supabase (GA4) — correr despues de schema.sql
 lib/meta.ts                  → llamadas a la Meta Graph API (ahora conserva campaign_id, adset_id y el arreglo actions completo)
+lib/ga4.ts                    → llamadas a la GA4 Data API (overview, canales, origenes, landing pages)
 lib/gemini.ts                 → Gemini + Google Search grounding
 lib/anthropic.ts              → Claude + herramienta de busqueda web
 lib/supabase.ts                → clientes de Supabase (browser + admin)
-lib/syncMeta.ts                → sincronizacion historica hacia Supabase (cron)
+lib/syncMeta.ts                → sincronizacion historica hacia Supabase (cron, Meta)
+lib/syncGa4.ts                  → sincronizacion historica hacia Supabase (cron, GA4)
 app/api/insights/              → consulta EN VIVO a Meta (campaign + adset + ad) para cualquier rango de fechas
+app/api/insights/ga4/           → consulta EN VIVO a GA4 para el mismo rango de fechas
 app/api/analyze/gemini/        → analisis con Gemini, sin estado (recibe el JSON a analizar)
 app/api/analyze/claude/        → analisis con Claude, sin estado
-app/api/sync-meta/             → cron historico hacia Supabase
-app/api/refresh/                → boton "Actualizar ahora"
-app/page.tsx                    → el dashboard: campañas -> conjuntos de anuncios -> creativos, cada uno con sus tarjetas de IA
+app/api/sync-meta/             → cron historico hacia Supabase (Meta)
+app/api/sync-ga4/                → cron historico hacia Supabase (GA4)
+app/api/refresh/                → boton "Actualizar ahora" (sincroniza Meta y GA4 en paralelo)
+app/page.tsx                    → el dashboard: GA4 (sitio web) + Meta (campañas -> conjuntos de anuncios -> creativos), cada seccion con sus tarjetas de IA
 app/globals.css                  → estilos (tema Mastery)
+
+../ga4-meta-bridge/            → (fuera de este repo) replica eventos de conversion de Meta hacia GA4
 ```

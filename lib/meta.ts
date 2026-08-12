@@ -11,7 +11,7 @@ const FIELDS = [
   'campaign_id', 'campaign_name',
   'adset_id', 'adset_name',
   'ad_id', 'ad_name',
-  'spend', 'impressions', 'reach', 'clicks', 'inline_link_clicks',
+  'spend', 'impressions', 'reach', 'clicks', 'inline_link_clicks', 'unique_inline_link_clicks',
   'ctr', 'cpc',
   'video_play_actions',
   'video_avg_time_watched_actions',
@@ -74,6 +74,8 @@ function normalizeRow(row: any, level: MetaLevel) {
     reach: parseInt(row.reach || '0', 10),
     clicks: parseInt(row.clicks || '0', 10),
     link_clicks: parseInt(row.inline_link_clicks || '0', 10),
+    unique_link_clicks: parseInt(row.unique_inline_link_clicks || '0', 10),
+    post_engagement: extractActionCount(row.actions, ['post_engagement']),
     video_plays: videoPlays,
     video_avg_watch_seconds: avgWatchSeconds,
     video_play_time_estimate: Math.round(videoPlays * avgWatchSeconds),
@@ -139,6 +141,34 @@ const CUSTOM_EVENT_TYPE_LABELS: Record<string, string> = {
   SUBSCRIBE: 'Suscribirse', // confirmado 25/jul/2026 en conjunto "SCALE ONE - Copia"
 };
 
+// Objetivo de la campaña (campo "objective") - misma regla de oro: si no
+// esta 100% confirmado el texto exacto de Ads Manager, se muestra el
+// valor tecnico crudo en vez de arriesgar una traduccion.
+const OBJECTIVE_LABELS: Record<string, string> = {
+  OUTCOME_LEADS: 'Generación de clientes potenciales',
+  OUTCOME_SALES: 'Ventas',
+  OUTCOME_ENGAGEMENT: 'Interacción',
+  OUTCOME_AWARENESS: 'Reconocimiento de marca',
+  OUTCOME_TRAFFIC: 'Tráfico',
+  OUTCOME_APP_PROMOTION: 'Promoción de la app',
+  // Nombres antiguos (campañas creadas antes de la reorganizacion de
+  // objetivos de Meta) - se mantienen por si aparece alguna asi:
+  LEAD_GENERATION: 'Generación de clientes potenciales',
+  CONVERSIONS: 'Conversiones',
+  LINK_CLICKS: 'Clics en el enlace',
+  REACH: 'Alcance',
+  BRAND_AWARENESS: 'Reconocimiento de marca',
+  VIDEO_VIEWS: 'Reproducciones de video',
+  MESSAGES: 'Mensajes',
+  APP_INSTALLS: 'Instalaciones de la app',
+  POST_ENGAGEMENT: 'Interacción con la publicación',
+};
+
+const BUYING_TYPE_LABELS: Record<string, string> = {
+  AUCTION: 'Subasta',
+  RESERVED: 'Alcance y frecuencia (reservado)',
+};
+
 const STATUS_LABELS: Record<string, string> = {
   ACTIVE: 'Activo',
   PAUSED: 'Pausado',
@@ -157,6 +187,8 @@ export type EntityStatus = {
   isActive: boolean;
   startTime: string | null;
   endTime: string | null;
+  objectiveLabel?: string | null;
+  buyingTypeLabel?: string | null;
 };
 
 /**
@@ -171,7 +203,7 @@ export async function fetchCampaignStatus(params: { campaignIds: string[]; token
   const uniqueIds = Array.from(new Set(campaignIds)).filter(Boolean);
   if (uniqueIds.length === 0) return {};
 
-  const batch = uniqueIds.map((id) => ({ method: 'GET', relative_url: `${id}?fields=effective_status,start_time,stop_time` }));
+  const batch = uniqueIds.map((id) => ({ method: 'GET', relative_url: `${id}?fields=effective_status,start_time,stop_time,objective,buying_type` }));
   const rows = await metaBatch(batch, token);
 
   const result: Record<string, EntityStatus> = {};
@@ -179,11 +211,15 @@ export async function fetchCampaignStatus(params: { campaignIds: string[]; token
     const body = rows[i];
     if (!body) return;
     const effectiveStatus = body.effective_status as string | undefined;
+    const objective = body.objective as string | undefined;
+    const buyingType = body.buying_type as string | undefined;
     result[id] = {
       status: (effectiveStatus && STATUS_LABELS[effectiveStatus]) || effectiveStatus || 'Desconocido',
       isActive: effectiveStatus === 'ACTIVE',
       startTime: body.start_time || null,
       endTime: body.stop_time || null,
+      objectiveLabel: objective ? (OBJECTIVE_LABELS[objective] || `${objective} (sin traducir)`) : null,
+      buyingTypeLabel: buyingType ? (BUYING_TYPE_LABELS[buyingType] || `${buyingType} (sin traducir)`) : null,
     };
   });
   return result;
@@ -269,6 +305,43 @@ export async function fetchAdsetGoals(params: { adsetIds: string[]; token: strin
     }
   }
 
+  return result;
+}
+
+/**
+ * Trae la URL de destino (landing page) real de CADA anuncio, leyendo su
+ * creatividad. Se pide anuncio por anuncio (no un representativo por
+ * conjunto) porque un mismo conjunto puede tener anuncios que apuntan a
+ * landings distintas - y esa es justo la data que se necesita para poder
+ * unificar/sumar correctamente a nivel de conjunto y de campaña despues.
+ * No se adivina: si Meta no trae un link reconocible en la creatividad,
+ * se devuelve null para ese anuncio.
+ */
+export async function fetchAdLandingUrls(params: {
+  adIds: string[];
+  token: string;
+}): Promise<Record<string, string | null>> {
+  const { adIds, token } = params;
+  const uniqueIds = Array.from(new Set(adIds)).filter(Boolean);
+  if (uniqueIds.length === 0) return {};
+
+  const batch = uniqueIds.map((adId) => ({
+    method: 'GET',
+    relative_url: `${adId}?fields=creative{object_story_spec,asset_feed_spec}`,
+  }));
+  const rows = await metaBatch(batch, token);
+
+  const result: Record<string, string | null> = {};
+  uniqueIds.forEach((adId, i) => {
+    const creative = rows[i]?.creative;
+    const link: string | null =
+      creative?.object_story_spec?.link_data?.link ||
+      creative?.object_story_spec?.video_data?.call_to_action?.value?.link ||
+      creative?.asset_feed_spec?.link_urls?.[0]?.website_url ||
+      creative?.asset_feed_spec?.videos?.[0]?.call_to_action?.[0]?.value?.link ||
+      null;
+    result[adId] = link;
+  });
   return result;
 }
 

@@ -73,10 +73,21 @@ body{
 .account-label{font-size:9.5px;opacity:.9;letter-spacing:.4px;}
 .account-spend{font-size:16px;font-weight:700;}
 .account-event{font-size:10px;opacity:.95;margin-top:2px;background:rgba(255,255,255,0.18);padding:2px 8px;border-radius:6px;display:inline-block;}
+.account-meta-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px;}
+.account-meta-row .account-event{margin-top:0;}
+.account-link{color:inherit;text-decoration:none;cursor:pointer;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.account-link:hover{background:rgba(255,255,255,0.32);}
 .status-pill{font-size:9.5px;font-weight:700;margin-left:8px;padding:2px 8px;border-radius:10px;display:inline-block;vertical-align:middle;}
 .status-pill.is-active{background:rgba(43,168,95,0.18);color:#1c7a44;}
 .status-pill.is-inactive{background:var(--silver);color:#2a2a2a;}
 .group-dates{color:var(--text-muted);font-weight:500;}
+
+/* ---- Visitas: valor de Meta + GA4 lado a lado dentro del embudo ---- */
+.bar-label.multi{flex-direction:column;gap:1px;font-size:11px;line-height:1.25;}
+.platform-value{display:flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap;}
+.platform-tag{font-size:7.5px;font-weight:800;letter-spacing:.3px;padding:1px 4px;border-radius:4px;text-transform:uppercase;}
+.platform-tag.meta{background:rgba(255,255,255,0.35);color:#241900;}
+.platform-tag.ga4{background:rgba(33,33,33,0.28);color:#fff;}
 
 /* ---- Login ---- */
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
@@ -167,4 +178,7 @@ td.weak-cell{color:var(--silver);font-weight:500;}
   .controls-panel{flex-direction:column;align-items:stretch;}
   .segmented{width:100%;}
   .segmented button{flex:1;}
+  .account-link{max-width:150px;}
+  .bar-label.multi{font-size:10px;}
+  .platform-tag{font-size:7px;padding:1px 3px;}
 }
