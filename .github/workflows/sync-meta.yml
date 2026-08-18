@@ -1,9 +1,16 @@
-name: Sincronizar datos de Meta cada 30 minutos
+name: Sincronizar datos de Meta (manual)
 
+# Antes esto corria solo cada 30 minutos (cron). Se quito porque nadie
+# usa ese historial en el dashboard hoy (todo se consulta en vivo desde
+# /api/insights) y solo generaba correos de "fallo" de GitHub sin
+# aportar nada. El boton "Actualizar ahora" del dashboard sigue
+# sincronizando al toque sin depender de este workflow para nada.
+# Si en algun momento se quiere volver a automatizar, se agrega de nuevo
+# el bloque "schedule:" de abajo (comentado como referencia).
 on:
-  schedule:
-    - cron: '*/30 * * * *'
   workflow_dispatch:
+  # schedule:
+  #   - cron: '*/30 * * * *'
 
 jobs:
   sync:

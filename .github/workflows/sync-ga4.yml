@@ -1,0 +1,17 @@
+name: Sincronizar datos de GA4 (manual)
+
+# Mismo criterio que sync-meta.yml: sin cron automatico, solo
+# disparable a mano desde GitHub Actions si algun dia hace falta.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '*/30 * * * *'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar a /api/sync-ga4
+        run: |
+          curl -sf -X GET "${{ secrets.SITE_URL }}/api/sync-ga4" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
