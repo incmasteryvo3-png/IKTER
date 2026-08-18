@@ -40,11 +40,14 @@ export const maxDuration = 30;
 //
 // Seguridad: se exige un secreto compartido, para que no cualquiera
 // pueda mandarle citas falsas a esta URL. Se manda como header
-// "X-Webhook-Secret" en la configuracion de la accion "Webhook" de GHL
+// "x_webhook_secret" en la configuracion de la accion "Webhook" de GHL
+// (con guion bajo, no guion medio - GHL no permite guardarlo con "-").
 // (seccion de headers personalizados).
 // ============================================================
 
 export async function POST(req: NextRequest) {
+  // Header con guion medio: "X-Webhook-Secret" en la configuracion de la
+  // accion "Webhook" de GHL.
   const secret = req.headers.get('x-webhook-secret');
   if (secret !== process.env.GHL_WEBHOOK_SECRET) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

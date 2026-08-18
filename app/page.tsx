@@ -161,7 +161,7 @@ const EVENTS: { key: string; label: string; short: string; types: string[] }[] =
   { key: 'page_view', label: 'Page view', short: 'P.view', types: ['landing_page_view', 'offsite_conversion.fb_pixel_page_view', 'omni_page_view'] },
   { key: 'view_content', label: 'Contenido visto', short: 'Cont.', types: ['view_content', 'offsite_conversion.fb_pixel_view_content', 'omni_view_content'] },
   { key: 'lead', label: 'Cliente potencial', short: 'Lead', types: ['lead', 'offsite_conversion.fb_pixel_lead', 'omni_lead'] },
-  { key: 'subscribe', label: 'Suscripción', short: 'Susc.', types: ['subscribe', 'offsite_conversion.fb_pixel_subscribe', 'omni_subscribe'] },
+  { key: 'subscribe', label: 'Suscripción', short: 'Susc.', types: ['subscribe', 'offsite_conversion.fb_pixel_subscribe', 'omni_subscribe', 'offsite_conversion.fb_pixel_custom'] },
   { key: 'tool_complete', label: 'Herramienta completada', short: 'Herr.', types: ['complete_tutorial', 'omni_complete_tutorial'] },
   { key: 'complete_registration', label: 'Formulario completado', short: 'Form.', types: ['complete_registration', 'offsite_conversion.fb_pixel_complete_registration', 'omni_complete_registration'] },
   { key: 'schedule', label: 'Cita agendada', short: 'Cita', types: ['schedule', 'offsite_conversion.fb_pixel_schedule', 'omni_schedule'] },

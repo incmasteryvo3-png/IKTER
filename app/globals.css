@@ -46,6 +46,10 @@ html[data-theme="dark"] .control-group select, html[data-theme="dark"] .select-r
 html[data-theme="dark"] table.citas-table{
   background:var(--card);
 }
+html[data-theme="dark"] .btn.primary{
+  background:var(--amber);
+  color:#241900;
+}
 html[data-theme="dark"] .citas-panel{background:rgba(122,35,148,0.12);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);}
 html[data-theme="dark"] .bar-cell .bar-track{background:rgba(246,245,244,0.08);}
 html[data-theme="dark"] .utm-pill{background:rgba(246,245,244,0.1);}

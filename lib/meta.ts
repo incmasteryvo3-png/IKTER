@@ -92,7 +92,18 @@ function normalizeRow(row: any, level: MetaLevel) {
 function extractResults(actions: any[] | undefined): number {
   if (!actions) return 0;
   const relevant = actions.find((a) =>
-    ['lead', 'complete_registration', 'submit_application', 'onsite_conversion.lead_grouped'].includes(a.action_type)
+    [
+      'lead', 'complete_registration', 'submit_application', 'onsite_conversion.lead_grouped',
+      // Eventos personalizados por pixel (ej. "Suscribirse") - confirmado
+      // contra datos reales de la cuenta el 18/ago/2026: todos los
+      // conjuntos de Mastery optimizan a un evento de este tipo.
+      // OJO: esto cuenta CUALQUIER conversion personalizada por pixel, no
+      // solo "Suscribirse" - si en el futuro se agrega un segundo evento
+      // personalizado distinto en la misma cuenta, este numero se
+      // volveria ambiguo (sumaria ambos) y habria que separar por
+      // custom_conversion_id en vez de por action_type generico.
+      'offsite_conversion.fb_pixel_custom',
+    ].includes(a.action_type)
   );
   return relevant ? parseInt(relevant.value, 10) : 0;
 }
