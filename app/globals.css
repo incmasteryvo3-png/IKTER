@@ -155,6 +155,24 @@ body{
   border-radius:7px;
 }
 html[data-theme="dark"] .ga4-landing-badge{color:#fff;background:rgba(168,85,201,0.28);}
+.ad-landing-badge{
+  display:inline-block;
+  max-width:150px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:800;
+  font-size:10.5px;
+  color:#241900;
+  background:linear-gradient(90deg,var(--amber),#ffd27a);
+  border:1.5px solid var(--amber-dark);
+  padding:3px 8px;
+  border-radius:7px;
+  text-decoration:none;
+  box-shadow:0 1px 4px rgba(204,131,24,0.35);
+}
+.ad-landing-badge:hover{box-shadow:0 2px 8px rgba(204,131,24,0.5);}
+.ad-landing-badge.none{background:var(--smoke);color:var(--text-muted);border-color:var(--border);font-weight:600;box-shadow:none;}
 .status-pill{font-size:9.5px;font-weight:700;margin-left:8px;padding:2px 8px;border-radius:10px;display:inline-block;vertical-align:middle;}
 .status-pill.is-active{background:rgba(43,168,95,0.18);color:#1c7a44;}
 .status-pill.is-inactive{background:var(--silver);color:#2a2a2a;}
@@ -192,6 +210,11 @@ html[data-theme="dark"] .ga4-landing-badge{color:#fff;background:rgba(168,85,201
 .bar-label.dim{opacity:.9;font-size:9.5px;line-height:1.15;white-space:normal;text-align:center;padding:0 4px;}
 
 .funnel-rate{width:98px;flex-shrink:0;text-align:right;}
+.funnel-rate.multi{display:flex;flex-direction:column;gap:2px;justify-content:center;}
+.funnel-rate-item{min-height:16px;}
+.funnel-rate-item.c1 .rate-value{color:var(--purple);}
+.funnel-rate-item.c2 .rate-value{color:var(--amber-dark);}
+.funnel-rate-item.c3 .rate-value{color:var(--tomato-dark);}
 .rate-value{font-size:13.5px;font-weight:700;color:var(--purple);}
 .rate-desc{font-size:9px;color:var(--text-muted);}
 

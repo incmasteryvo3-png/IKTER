@@ -687,7 +687,6 @@ function FunnelGroup({ items, stages }: { items: FunnelItem[]; stages: Stage[] }
         </div>
         {stages.map((st, i) => {
           const cp = clipPath(widths[i], widths[i + 1]);
-          const ref = items[0]?.data;
           return (
             <div className="funnel-row" key={st.label}>
               <div className="funnel-icon-col"><div className="icon-circle">{st.icon}</div><div><div className="row-label">{st.label}</div><div className="row-desc">{st.desc}</div></div></div>
@@ -699,7 +698,11 @@ function FunnelGroup({ items, stages }: { items: FunnelItem[]; stages: Stage[] }
                   </div>
                 ))}
               </div>
-              <div className="funnel-rate">{ref && <RateCell stage={st} data={ref} />}</div>
+              <div className="funnel-rate multi">
+                {items.map((s) => (
+                  <div className={`funnel-rate-item ${s.cls}`} key={s.id}><RateCell stage={st} data={s.data} /></div>
+                ))}
+              </div>
             </div>
           );
         })}
@@ -824,11 +827,6 @@ function AccountBox({ item }: { item: FunnelItem }) {
           {isCampaign && d.objective_label && <div className="account-event">Objetivo: {d.objective_label}</div>}
           {isCampaign && d.buying_type_label && <div className="account-event">Tipo de compra: {d.buying_type_label}</div>}
           {item.badge && <div className="account-event">Evento de conversión: {item.badge}</div>}
-          {item.landingUrl && (
-            <a className="account-event account-link" href={item.landingUrl} target="_blank" rel="noopener noreferrer" title={item.landingUrl}>
-              🔗 {shortUrl(item.landingUrl)}{d.landing_urls && d.landing_urls.length > 1 ? ` (+${d.landing_urls.length - 1})` : ''}
-            </a>
-          )}
         </div>
         {from && <div className="account-event">Período activo: {from}{to ? ` – ${to}` : ' – en curso'}</div>}
       </div>
@@ -957,13 +955,14 @@ function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath, citasByAd
     return map;
   }, [ads]);
 
-  const colCount = 8 + EVENTS.length; // Anuncio + Alcance + Reprod. + T.prom + T.rep + Visitas + eventos + Citas
+  const colCount = 9 + EVENTS.length; // Anuncio + Landing + Alcance + Reprod. + T.prom + T.rep + Visitas + eventos + Citas
 
   return (
     <table className="results-table wide-table">
       <thead>
         <tr>
           <th>Anuncio</th>
+          <th title="Landing page real configurada en la llamada a la acción de ESTE anuncio">Landing</th>
           <th>Alc.</th>
           <th>Reprod.</th>
           <th>T.prom</th>
@@ -1010,6 +1009,15 @@ function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath, citasByAd
                           {isWeakest && <span className="warn">⚠</span>}
                           {a.level_name}
                         </div>
+                      </td>
+                      <td>
+                        {a.landing_url ? (
+                          <a className="ad-landing-badge" href={a.landing_url} target="_blank" rel="noopener noreferrer" title={a.landing_url}>
+                            🔗 {shortUrl(a.landing_url)}
+                          </a>
+                        ) : (
+                          <span className="ad-landing-badge none">Sin detectar</span>
+                        )}
                       </td>
                       <BarCell value={a.reach} max={badges.maxReach.reach} isBest={a === badges.maxReach} isWeak={isWeakest} format={fmt} />
                       <BarCell value={a.video_plays} max={badges.maxPlays.video_plays} isBest={a === badges.maxPlays} isWeak={isWeakest} format={fmt} />

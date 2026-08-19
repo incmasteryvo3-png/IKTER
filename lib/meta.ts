@@ -391,7 +391,16 @@ export async function fetchAdLandingUrls(params: {
   const result: Record<string, string | null> = {};
   uniqueIds.forEach((adId, i) => {
     const creative = rows[i]?.creative;
+    // El orden importa: link_data.call_to_action.value.link es el link
+    // REAL detrás del botón de "Llamada a la accion" del anuncio (lo
+    // que ve la persona al hacer clic) - confirmado contra una captura
+    // real donde este link (pesoenpauta.incmastery.com) era distinto al
+    // de link_data.link (que apuntaba a un widget de calendario de
+    // leadconnectorhq.com, no a la landing real). Por eso ahora se
+    // revisa primero el de la llamada a la accion, y solo se cae al
+    // link_data.link base si el anuncio no tiene ese campo.
     const link: string | null =
+      creative?.object_story_spec?.link_data?.call_to_action?.value?.link ||
       creative?.object_story_spec?.link_data?.link ||
       creative?.object_story_spec?.video_data?.call_to_action?.value?.link ||
       creative?.asset_feed_spec?.link_urls?.[0]?.website_url ||
