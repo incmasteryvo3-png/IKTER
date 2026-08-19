@@ -33,8 +33,26 @@ export type GhlAppointmentRaw = {
   dateAdded?: string;
 };
 
-// Trae los eventos de calendario (citas) de un rango de fechas. Pagina
-// automaticamente si la cuenta tiene mas de las que trae una sola pagina.
+// GHL no deja pedir "todas las citas de la location" en una sola
+// llamada - exige indicar DE QUE CALENDARIO especificamente (confirmado
+// con el error real: "Either of userId, calendarId or groupId is
+// required"). Por eso primero se trae la lista de calendarios de la
+// cuenta, y despues se piden las citas calendario por calendario.
+async function fetchGhlCalendarIds(params: { token: string; locationId: string }): Promise<string[]> {
+  const { token, locationId } = params;
+  const url = `${API_BASE}/calendars/?locationId=${locationId}`;
+  const res = await fetch(url, { headers: headers(token) });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`GHL /calendars respondio ${res.status}: ${body.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  const calendars: any[] = data.calendars || [];
+  return calendars.map((c) => c.id).filter(Boolean);
+}
+
+// Trae los eventos de calendario (citas) de un rango de fechas, de
+// TODOS los calendarios de la location, uno por uno.
 export async function fetchGhlAppointments(params: {
   token: string;
   locationId: string;
@@ -42,17 +60,29 @@ export async function fetchGhlAppointments(params: {
   endTime: string; // ISO
 }): Promise<GhlAppointmentRaw[]> {
   const { token, locationId, startTime, endTime } = params;
-  const url = `${API_BASE}/calendars/events?locationId=${locationId}&startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}`;
 
-  const res = await fetch(url, { headers: headers(token) });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`GHL /calendars/events respondio ${res.status}: ${body.slice(0, 300)}`);
+  const calendarIds = await fetchGhlCalendarIds({ token, locationId });
+  if (calendarIds.length === 0) {
+    throw new Error('GHL no devolvio ningun calendario para esta location - revisa que GHL_LOCATION_ID sea correcto.');
   }
-  const data = await res.json();
-  // La forma exacta de la respuesta (events/appointments como nombre de
-  // la propiedad) puede variar - se prueban las 2 mas comunes.
-  return data.events || data.appointments || [];
+
+  const allAppointments: GhlAppointmentRaw[] = [];
+  for (const calendarId of calendarIds) {
+    const url = `${API_BASE}/calendars/events?locationId=${locationId}&calendarId=${calendarId}&startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}`;
+    const res = await fetch(url, { headers: headers(token) });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      // Un calendario que falle no debe tumbar a los demas - se
+      // registra en consola y se sigue con el resto.
+      console.error(`GHL /calendars/events (calendarId=${calendarId}) respondio ${res.status}: ${body.slice(0, 300)}`);
+      continue;
+    }
+    const data = await res.json();
+    const events = data.events || data.appointments || [];
+    allAppointments.push(...events);
+  }
+
+  return allAppointments;
 }
 
 export type GhlContactAttribution = {
