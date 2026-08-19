@@ -17,6 +17,7 @@ const FIELDS = [
   'video_avg_time_watched_actions',
   'actions',
   'cost_per_action_type',
+  'conversions', 'cost_per_conversion',
 ].join(',');
 
 export async function fetchMetaInsights(params: {
@@ -58,7 +59,7 @@ function normalizeRow(row: any, level: MetaLevel) {
   const idKey = level === 'campaign' ? 'campaign_id' : level === 'adset' ? 'adset_id' : 'ad_id';
   const nameKey = level === 'campaign' ? 'campaign_name' : level === 'adset' ? 'adset_name' : 'ad_name';
 
-  const results = extractResults(row.actions);
+  const { count: results, costPerResult } = extractResults(row.actions, row.conversions, row.cost_per_conversion, parseFloat(row.spend || '0'));
   const landingPageViews = extractActionCount(row.actions, ['landing_page_view']);
   const videoPlays = sumActionValues(row.video_play_actions);
   const avgWatchSeconds = extractAvgWatchSeconds(row.video_avg_time_watched_actions);
@@ -81,37 +82,82 @@ function normalizeRow(row: any, level: MetaLevel) {
     video_play_time_estimate: Math.round(videoPlays * avgWatchSeconds),
     landing_page_views: landingPageViews,
     ctr: parseFloat(row.ctr || '0'),
-    cpc: parseFloat(row.cpc || '0'),
+    cpc: parseFloat(row.cpc || '0'), // costo por clic (TODOS los clics) - directo de Meta
+    // Costo por clic en el enlace y costo por visita a la landing: Meta
+    // los trae dentro de "cost_per_action_type" (el mismo arreglo que
+    // "actions" pero de costos) - se leen de ahi, no se calculan.
+    // OJO: el que trae Meta es "costo por clic en el enlace" (todos los
+    // clics en el enlace), no existe un campo de Meta separado para
+    // "costo por clic UNICO en el enlace" - por eso este numero se
+    // empareja con link_clicks (todos), no con unique_link_clicks. Esto
+    // se decidio asi para no inventar una division que Meta no ofrece.
+    cost_per_link_click: extractActionCost(row.cost_per_action_type, ['link_click']),
+    cost_per_landing_page_view: extractActionCost(row.cost_per_action_type, ['landing_page_view']),
     results,
-    cost_per_result: results > 0 ? parseFloat(row.spend || '0') / results : null,
+    cost_per_result: costPerResult, // directo de Meta (cost_per_conversion), no calculado
     actions: row.actions || [], // arreglo crudo, para poder mostrar cada evento de conversion por separado
+    conversions_raw: row.conversions || [], // arreglo crudo del campo "conversions" (diagnostico)
     raw: row,
   };
 }
 
-function extractResults(actions: any[] | undefined): number {
-  if (!actions) return 0;
+// Devuelve el conteo de resultados Y su costo, ambos leidos directo de
+// los campos que Meta reserva para esto ("conversions" /
+// "cost_per_conversion") - nunca calculados por IKTER.
+function extractResults(
+  actions: any[] | undefined,
+  conversions: any[] | undefined,
+  costPerConversion: any[] | undefined,
+  spend: number
+): { count: number; costPerResult: number | null } {
+  // "conversions" es el campo que Meta reserva especificamente para el
+  // evento configurado como objetivo de optimizacion del conjunto -
+  // es lo que Ads Manager usa para pintar la columna "Resultados", a
+  // diferencia de "actions" que es un listado generico de todo lo que
+  // paso (y donde varios eventos de pixel personalizados quedan
+  // mezclados bajo un mismo nombre generico). Si Meta trae algo aca,
+  // se usa esto primero.
+  if (conversions && conversions.length > 0) {
+    // Si el conjunto esta optimizado a un solo evento (el caso normal),
+    // deberia venir una sola entrada. Si vienen varias (cuenta con mas
+    // de un evento de conversion activo), se toma la de mayor valor -
+    // es la interpretacion mas razonable sin poder preguntarle a Meta
+    // cual es "la" oficial desde este campo.
+    const best = conversions.reduce((m, c) => (parseInt(c.value || '0', 10) > parseInt(m.value || '0', 10) ? c : m), conversions[0]);
+    const count = parseInt(best.value || '0', 10);
+    // El costo correspondiente a ESE MISMO action_type, tambien directo
+    // de Meta (no se calcula spend/count).
+    const costEntry = (costPerConversion || []).find((c) => c.action_type === best.action_type);
+    const costPerResult = costEntry ? parseFloat(costEntry.value) : null;
+    return { count, costPerResult };
+  }
+
+  // Respaldo: los 4 tipos de "actions" ya confirmados contra datos
+  // reales para leads/registros/solicitudes. Aca si toca calcular el
+  // costo (spend/count) porque no hay "cost_per_conversion" que
+  // acompañe a "actions" - es el unico caso donde no queda otra.
+  if (!actions) return { count: 0, costPerResult: null };
   const relevant = actions.find((a) =>
-    [
-      'lead', 'complete_registration', 'submit_application', 'onsite_conversion.lead_grouped',
-      // Eventos personalizados por pixel (ej. "Suscribirse") - confirmado
-      // contra datos reales de la cuenta el 18/ago/2026: todos los
-      // conjuntos de Mastery optimizan a un evento de este tipo.
-      // OJO: esto cuenta CUALQUIER conversion personalizada por pixel, no
-      // solo "Suscribirse" - si en el futuro se agrega un segundo evento
-      // personalizado distinto en la misma cuenta, este numero se
-      // volveria ambiguo (sumaria ambos) y habria que separar por
-      // custom_conversion_id en vez de por action_type generico.
-      'offsite_conversion.fb_pixel_custom',
-    ].includes(a.action_type)
+    ['lead', 'complete_registration', 'submit_application', 'onsite_conversion.lead_grouped'].includes(a.action_type)
   );
-  return relevant ? parseInt(relevant.value, 10) : 0;
+  const count = relevant ? parseInt(relevant.value, 10) : 0;
+  return { count, costPerResult: count > 0 ? spend / count : null };
 }
 
 function extractActionCount(actions: any[] | undefined, types: string[]): number {
   if (!actions) return 0;
   const relevant = actions.find((a) => types.includes(a.action_type));
   return relevant ? parseInt(relevant.value, 10) : 0;
+}
+
+// Igual que extractActionCount, pero para el arreglo de COSTOS
+// ("cost_per_action_type") que Meta manda por separado - confirmado
+// contra datos reales que trae, entre otros, "link_click" y
+// "landing_page_view" ya calculados por Meta.
+function extractActionCost(costPerActionType: any[] | undefined, types: string[]): number | null {
+  if (!costPerActionType) return null;
+  const relevant = costPerActionType.find((a) => types.includes(a.action_type));
+  return relevant ? parseFloat(relevant.value) : null;
 }
 
 function sumActionValues(actions: any[] | undefined): number {

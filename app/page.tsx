@@ -21,6 +21,8 @@ type InsightRow = {
   video_avg_watch_seconds: number;
   video_play_time_estimate: number;
   landing_page_views: number;
+  cost_per_link_click: number | null;
+  cost_per_landing_page_view: number | null;
   results: number;
   cost_per_result: number | null;
   actions: { action_type: string; value: string }[];
@@ -95,10 +97,12 @@ type Stage = {
   desc: string;
   key: keyof InsightRow;
   // 'percent': tasa entre esta etapa y rateOf (como esta ahora en Resultados).
-  // 'cost': costo (inversion / valor de esta etapa) - ej. CPC, costo por visita.
+  // 'metaField': muestra un campo que Meta YA trae calculado (cost_per_link_click,
+  // cost_per_landing_page_view, cost_per_result) - no se calcula nada aca.
   // 'none': no se muestra nada al lado (primera etapa del embudo).
-  rateMode: 'percent' | 'cost' | 'none';
+  rateMode: 'percent' | 'metaField' | 'none';
   rateOf?: keyof InsightRow;
+  rateField?: keyof InsightRow;
   rateDesc: string;
   // Si es true, junto al valor de Meta se muestra tambien el dato
   // cruzado de GA4 para esa misma etapa (solo aplica a "visitas a la
@@ -119,8 +123,8 @@ const PACKAGES: Record<string, { name: string; short: string; description: strin
     description: 'Lo esencial para decidir presupuesto: qué se gastó, quién de verdad hizo clic (no accidental), quién cargó la página, cuántos resultados y a qué costo.',
     stages: [
       { icon: '👥', label: 'ALCANCE', desc: 'Personas únicas', key: 'reach', rateMode: 'none', rateDesc: '' },
-      { icon: '🖱', label: 'CLICS ÚNICOS', desc: 'En el enlace', key: 'unique_link_clicks', rateMode: 'cost', rateOf: 'unique_link_clicks', rateDesc: 'CPC (clic en enlace)' },
-      { icon: '🌐', label: 'VISITAS', desc: 'A la landing', key: 'landing_page_views', rateMode: 'cost', rateOf: 'landing_page_views', rateDesc: 'Costo por visita', showGa4: true },
+      { icon: '🖱', label: 'CLICS ÚNICOS', desc: 'En el enlace', key: 'unique_link_clicks', rateMode: 'metaField', rateField: 'cost_per_link_click', rateDesc: 'CPC (clic en enlace)' },
+      { icon: '🌐', label: 'VISITAS', desc: 'A la landing', key: 'landing_page_views', rateMode: 'metaField', rateField: 'cost_per_landing_page_view', rateDesc: 'Costo por visita', showGa4: true },
       { icon: '📋', label: 'RESULTADOS', desc: 'Conversión', key: 'results', rateMode: 'percent', rateOf: 'landing_page_views', rateDesc: 'Result. / Visitas' },
     ],
   },
@@ -144,7 +148,7 @@ const PACKAGES: Record<string, { name: string; short: string; description: strin
       { icon: '👥', label: 'ALCANCE', desc: 'Personas únicas', key: 'reach', rateMode: 'none', rateDesc: '' },
       { icon: '🖱', label: 'CLICS (TODOS)', desc: 'Todo tipo de clic', key: 'clicks', rateMode: 'percent', rateOf: 'reach', rateDesc: 'CTR (todos)' },
       { icon: '💬', label: 'INTERACCIÓN', desc: 'Con la publicación', key: 'post_engagement', rateMode: 'percent', rateOf: 'clicks', rateDesc: 'Interac. / Clics' },
-      { icon: '🌐', label: 'VISITAS', desc: 'A la landing', key: 'landing_page_views', rateMode: 'cost', rateOf: 'landing_page_views', rateDesc: 'Costo por visita', showGa4: true },
+      { icon: '🌐', label: 'VISITAS', desc: 'A la landing', key: 'landing_page_views', rateMode: 'metaField', rateField: 'cost_per_landing_page_view', rateDesc: 'Costo por visita', showGa4: true },
       { icon: '📋', label: 'RESULTADOS', desc: 'Conversión', key: 'results', rateMode: 'percent', rateOf: 'landing_page_views', rateDesc: 'Result. / Visitas' },
     ],
   },
@@ -161,7 +165,7 @@ const EVENTS: { key: string; label: string; short: string; types: string[] }[] =
   { key: 'page_view', label: 'Page view', short: 'P.view', types: ['landing_page_view', 'offsite_conversion.fb_pixel_page_view', 'omni_page_view'] },
   { key: 'view_content', label: 'Contenido visto', short: 'Cont.', types: ['view_content', 'offsite_conversion.fb_pixel_view_content', 'omni_view_content'] },
   { key: 'lead', label: 'Cliente potencial', short: 'Lead', types: ['lead', 'offsite_conversion.fb_pixel_lead', 'omni_lead'] },
-  { key: 'subscribe', label: 'Suscripción', short: 'Susc.', types: ['subscribe', 'offsite_conversion.fb_pixel_subscribe', 'omni_subscribe', 'offsite_conversion.fb_pixel_custom'] },
+  { key: 'subscribe', label: 'Suscripción', short: 'Susc.', types: ['subscribe', 'offsite_conversion.fb_pixel_subscribe', 'omni_subscribe'] },
   { key: 'tool_complete', label: 'Herramienta completada', short: 'Herr.', types: ['complete_tutorial', 'omni_complete_tutorial'] },
   { key: 'complete_registration', label: 'Formulario completado', short: 'Form.', types: ['complete_registration', 'offsite_conversion.fb_pixel_complete_registration', 'omni_complete_registration'] },
   { key: 'schedule', label: 'Cita agendada', short: 'Cita', types: ['schedule', 'offsite_conversion.fb_pixel_schedule', 'omni_schedule'] },
@@ -189,6 +193,9 @@ function fmt(n: number) {
 function pct(part: number, whole: number) {
   return whole ? `${((part / whole) * 100).toFixed(2).replace('.', ',')}%` : '—';
 }
+// Ya no se usa en el embudo (los costos ahora vienen directo de Meta,
+// ver cost_per_link_click/cost_per_landing_page_view/cost_per_result en
+// lib/meta.ts) - se deja por si hace falta en otro lugar mas adelante.
 function costPer(spend: number, count: number) {
   return count > 0 ? `$${(spend / count).toFixed(2)}` : '—';
 }
@@ -205,9 +212,18 @@ function shortDate(iso: string | null | undefined) {
   if (isNaN(d.getTime())) return null;
   return d.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
+// Meta reporta el MISMO evento real bajo varios nombres (action_type)
+// al mismo tiempo -- confirmado con datos reales: "view_content",
+// "omni_view_content" y "offsite_conversion.fb_pixel_view_content"
+// aparecen juntos con EL MISMO valor (86 = 86 = 86), porque son formas
+// distintas de atribuir el mismo evento, no tres eventos separados.
+// Por eso aca se toma solo UNO (el primero que aparezca en el arreglo
+// de la fila, en el orden en que Meta los mande) - nunca se suman,
+// sumar los alias de un mismo evento infla el numero varias veces.
 function getEventCount(row: InsightRow, types: string[]): number {
   if (!row.actions) return 0;
-  return row.actions.filter((a) => types.includes(a.action_type)).reduce((s, a) => s + parseInt(a.value || '0', 10), 0);
+  const match = row.actions.find((a) => types.includes(a.action_type));
+  return match ? parseInt(match.value || '0', 10) : 0;
 }
 // Nota: antes habia aqui una funcion "getDominantEvent" que adivinaba el
 // evento de conversion contando cuales acciones tuvieron mas ocurrencias.
@@ -631,10 +647,15 @@ function Badge({ label, name, value }: { label: string; name: string; value: str
 // Calcula lo que va en la columna de "tasa" (al otro lado de la barra):
 // un porcentaje (ej. "Result. / Visitas"), un costo (ej. "CPC"), o nada.
 function RateCell({ stage, data }: { stage: Stage; data: InsightRow }) {
-  if (stage.rateMode === 'none' || !stage.rateOf) return null;
-  const value = stage.rateMode === 'cost'
-    ? costPer(data.spend, data[stage.rateOf] as number)
-    : pct(data[stage.key] as number, data[stage.rateOf] as number);
+  if (stage.rateMode === 'none') return null;
+  if (stage.rateMode === 'metaField') {
+    if (!stage.rateField) return null;
+    const raw = data[stage.rateField] as number | null | undefined;
+    if (raw == null) return null; // Meta no trajo este dato para esta fila - no se inventa
+    return <><div className="rate-value">${raw.toFixed(2)}</div><div className="rate-desc">{stage.rateDesc}</div></>;
+  }
+  if (!stage.rateOf) return null;
+  const value = pct(data[stage.key] as number, data[stage.rateOf] as number);
   if (value === '—') return null;
   return <><div className="rate-value">{value}</div><div className="rate-desc">{stage.rateDesc}</div></>;
 }
@@ -1148,7 +1169,9 @@ function Ga4Section({
                   <tbody>
                     {landingPages.map((p) => (
                       <tr key={p.landing_page}>
-                        <td className="ad-name-cell" title={p.landing_page} style={{ maxWidth: 260 }}>{p.landing_page}</td>
+                        <td style={{ textAlign: 'left', maxWidth: 260 }}>
+                          <span className="ga4-landing-badge" title={p.landing_page}>🌐 {p.landing_page}</span>
+                        </td>
                         <td>{fmt(p.sessions)}</td>
                         <td className={p.conversions === 0 ? 'weak-cell' : ''}>{fmt(p.conversions)}</td>
                         <td>{pctFromRate(p.bounce_rate)}</td>
