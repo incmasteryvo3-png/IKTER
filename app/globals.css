@@ -6,26 +6,75 @@
   --amber-dark:#cc8318;
   --tomato:#FF6347;
   --tomato-dark:#cc4f39;
+  --teal:#0e8a7d;
   --carbon:#212121;
   --smoke:#F6F5F4;
   --silver:#AEAEAE;
   --card:#ffffff;
+  --card-alt:#faf7fb;
   --border:#e6dfeb;
   --text:#212121;
   --text-muted:#6b6570;
+  --bg1:#b06ec4; --bg2:#e9d9f0; --bg3:#F6F5F4; --bg4:#ffffff;
 }
+/* ============================================================
+   MODO NOCTURNO - paleta real de marca Mastery (Royal Orchid,
+   Amber Glow, Tomato, Carbon Black, White Smoke, Silver). Las
+   tarjetas quedan semi-transparentes con desenfoque (vidrio
+   esmerilado) para diferenciarse del fondo, no solo "oscuras".
+   ============================================================ */
+html[data-theme="dark"]{
+  --purple:#a855c9; --purple-dark:#7A2394; --purple-light:#d9a8e8;
+  --amber:#FFA51F; --amber-dark:#cc8318;
+  --tomato:#FF6347; --tomato-dark:#cc4f39;
+  --teal:#3fc4b3;
+  --carbon:#F6F5F4; --smoke:#1a1620; --silver:#AEAEAE;
+  --card:rgba(38,30,46,0.62); --card-alt:rgba(122,35,148,0.16);
+  --border:rgba(246,245,244,0.12); --text:#F6F5F4; --text-muted:#c9bfd1;
+  --bg1:#2b1533; --bg2:#1c1020; --bg3:#120a16; --bg4:#0a060c;
+}
+html[data-theme="dark"] .badge, html[data-theme="dark"] .ai-card, html[data-theme="dark"] .results-table-wrap,
+html[data-theme="dark"] .funnel-panel, html[data-theme="dark"] .funnel-single, html[data-theme="dark"] .summary-col,
+html[data-theme="dark"] .controls-panel, html[data-theme="dark"] .insight-bar, html[data-theme="dark"] .citas-table,
+html[data-theme="dark"] .theme-toggle, html[data-theme="dark"] .btn, html[data-theme="dark"] .control-group input,
+html[data-theme="dark"] .control-group select, html[data-theme="dark"] .select-row select, html[data-theme="dark"] .segmented button{
+  backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+  box-shadow:0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+html[data-theme="dark"] .btn, html[data-theme="dark"] .btn.ghost, html[data-theme="dark"] .control-group input,
+html[data-theme="dark"] .control-group select, html[data-theme="dark"] .select-row select, html[data-theme="dark"] .segmented button,
+html[data-theme="dark"] table.citas-table{
+  background:var(--card);
+}
+html[data-theme="dark"] .btn.primary{
+  background:var(--amber);
+  color:#241900;
+}
+html[data-theme="dark"] .citas-panel{background:rgba(122,35,148,0.12);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);}
+html[data-theme="dark"] .bar-cell .bar-track{background:rgba(246,245,244,0.08);}
+html[data-theme="dark"] .utm-pill{background:rgba(246,245,244,0.1);}
+html[data-theme="dark"] .adset-group-row td{background:rgba(122,35,148,0.22) !important;}
+html[data-theme="dark"] table.results-table.wide-table th:first-child,
+html[data-theme="dark"] table.results-table.wide-table td:first-child{background:rgba(28,22,34,0.85);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);}
+html[data-theme="dark"] table.results-table.wide-table tr.best-row td:first-child{background:rgba(255,165,31,0.18);}
+html[data-theme="dark"] .status-pill.is-active{color:#5fe094;}
+html[data-theme="dark"] .segmented button.active{background:var(--purple-dark);}
+html[data-theme="dark"] .logo{filter:brightness(0) invert(1) drop-shadow(0 0 10px rgba(255,165,31,0.25));}
+
 *{box-sizing:border-box}
 body{
   margin:0;
   color:var(--text);
   font-family:-apple-system,"Segoe UI",Roboto,sans-serif;
-  background:linear-gradient(150deg,var(--purple-light) 0%, #e9d9f0 22%, var(--smoke) 55%, #ffffff 100%);
+  background:linear-gradient(150deg,var(--bg1) 0%, var(--bg2) 22%, var(--bg3) 55%, var(--bg4) 100%);
   background-attachment:fixed;
   min-height:100vh;
+  transition:background .25s ease,color .25s ease;
 }
 .wrap{max-width:1180px;margin:0 auto;padding:24px 16px 80px;}
-.logo{height:44px;display:block;margin:0 auto;}
-.header{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:20px;gap:10px;}
+.logo{height:88px;display:block;margin:0 auto;}
+.header{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:20px;gap:10px;position:relative;}
+.theme-toggle{position:absolute;top:0;right:0;background:var(--card);border:1px solid var(--border);color:var(--text);width:38px;height:38px;border-radius:50%;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
 .title{font-size:26px;font-weight:700;margin:0;color:var(--carbon);}
 .period{color:var(--text-muted);font-size:12.5px;margin:0;}
 .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
@@ -75,8 +124,55 @@ body{
 .account-event{font-size:10px;opacity:.95;margin-top:2px;background:rgba(255,255,255,0.18);padding:2px 8px;border-radius:6px;display:inline-block;}
 .account-meta-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px;}
 .account-meta-row .account-event{margin-top:0;}
-.account-link{color:inherit;text-decoration:none;cursor:pointer;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.account-link:hover{background:rgba(255,255,255,0.32);}
+.account-link{
+  color:var(--carbon);
+  background:#fff;
+  text-decoration:none;
+  cursor:pointer;
+  max-width:230px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:800;
+  padding:4px 10px 4px 8px;
+  border-radius:8px;
+  border:2px solid #fff;
+  box-shadow:0 0 0 3px rgba(255,255,255,0.35), 0 2px 10px rgba(0,0,0,0.25);
+}
+.account-link:hover{box-shadow:0 0 0 4px rgba(255,255,255,0.55), 0 2px 12px rgba(0,0,0,0.3);}
+.ga4-landing-badge{
+  display:inline-block;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:800;
+  font-size:11px;
+  color:var(--purple-dark);
+  background:rgba(122,35,148,0.1);
+  border:1.5px solid var(--purple);
+  padding:3px 9px;
+  border-radius:7px;
+}
+html[data-theme="dark"] .ga4-landing-badge{color:#fff;background:rgba(168,85,201,0.28);}
+.ad-landing-badge{
+  display:inline-block;
+  max-width:150px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:800;
+  font-size:10.5px;
+  color:#241900;
+  background:linear-gradient(90deg,var(--amber),#ffd27a);
+  border:1.5px solid var(--amber-dark);
+  padding:3px 8px;
+  border-radius:7px;
+  text-decoration:none;
+  box-shadow:0 1px 4px rgba(204,131,24,0.35);
+}
+.ad-landing-badge:hover{box-shadow:0 2px 8px rgba(204,131,24,0.5);}
+.ad-landing-badge.none{background:var(--smoke);color:var(--text-muted);border-color:var(--border);font-weight:600;box-shadow:none;}
 .status-pill{font-size:9.5px;font-weight:700;margin-left:8px;padding:2px 8px;border-radius:10px;display:inline-block;vertical-align:middle;}
 .status-pill.is-active{background:rgba(43,168,95,0.18);color:#1c7a44;}
 .status-pill.is-inactive{background:var(--silver);color:#2a2a2a;}
@@ -114,6 +210,11 @@ body{
 .bar-label.dim{opacity:.9;font-size:9.5px;line-height:1.15;white-space:normal;text-align:center;padding:0 4px;}
 
 .funnel-rate{width:98px;flex-shrink:0;text-align:right;}
+.funnel-rate.multi{display:flex;flex-direction:column;gap:2px;justify-content:center;}
+.funnel-rate-item{min-height:16px;}
+.funnel-rate-item.c1 .rate-value{color:var(--purple);}
+.funnel-rate-item.c2 .rate-value{color:var(--amber-dark);}
+.funnel-rate-item.c3 .rate-value{color:var(--tomato-dark);}
 .rate-value{font-size:13.5px;font-weight:700;color:var(--purple);}
 .rate-desc{font-size:9px;color:var(--text-muted);}
 
@@ -135,6 +236,7 @@ body{
 @media (max-width:700px){ .ai-cards-row{grid-template-columns:1fr;} }
 .ai-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;font-size:13px;line-height:1.55;color:var(--text);}
 .ai-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.ai-card-header .btn.small{text-transform:uppercase;letter-spacing:.3px;}
 .ai-card-title{font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:6px;}
 .ai-card-title.gemini{color:#8e5fd6;}
 .ai-card-title.claude{color:#c76a3c;}
@@ -155,16 +257,46 @@ table.results-table{width:100%;border-collapse:collapse;}
 @media (max-width:900px){ table.results-table{min-width:900px;} }
 table.results-table th{text-align:center;font-size:8.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.2px;padding:8px 4px;border-bottom:1px solid var(--border);white-space:nowrap;}
 table.results-table th:first-child{text-align:left;}
+table.results-table.wide-table{min-width:1650px;}
+table.results-table.wide-table th:first-child{position:sticky;left:0;background:var(--card);z-index:2;}
+table.results-table.wide-table td:first-child{position:sticky;left:0;background:var(--card);z-index:1;}
+table.results-table.wide-table tr.best-row td:first-child{background:#fffaf0;}
 table.results-table td{padding:7px 4px;border-bottom:1px solid var(--border);vertical-align:middle;text-align:center;font-size:11.5px;font-weight:600;color:var(--text);}
 table.results-table tr:last-child td{border-bottom:none;}
 table.results-table tr.best-row{background:rgba(255,165,31,0.06);}
 td.best-cell{color:var(--amber-dark);font-weight:800;}
 td.weak-cell{color:var(--silver);font-weight:500;}
+
+/* ---- Barras verticales dentro de cada celda de metrica (el "embudo
+   visual" original) - se recuperan aca despues de haberse perdido sin
+   querer al agregar las columnas de GA4/eventos/GHL. ---- */
+.bar-cell{min-width:52px;text-align:center;}
+.bar-cell .bar-track{background:var(--smoke);border-radius:5px;width:20px;height:46px;position:relative;overflow:hidden;margin:0 auto 4px;display:flex;align-items:flex-end;}
+.bar-cell .bar-fill{width:100%;border-radius:5px;background:linear-gradient(0deg,var(--purple),var(--purple-light));}
+.bar-cell .bar-value{font-size:10.5px;font-weight:700;color:var(--carbon);}
+.bar-cell.best .bar-fill{background:linear-gradient(0deg,var(--amber-dark),var(--amber));}
+.bar-cell.best .bar-value{color:var(--amber-dark);}
+.bar-cell.weak .bar-fill{background:var(--silver);}
+.bar-cell.weak .bar-value{color:var(--text-muted);}
+
 .ad-name-cell{font-size:11.5px;font-weight:600;text-align:left !important;color:var(--carbon);display:flex;align-items:center;gap:4px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .ad-name-cell .crown{color:var(--amber-dark);flex-shrink:0;}
 .ad-name-cell .warn{color:var(--tomato);flex-shrink:0;}
 .adset-group-row td{background:rgba(122,35,148,0.06);font-size:11px;font-weight:700;color:var(--purple);text-align:left !important;padding:8px 10px;text-transform:none;letter-spacing:0;}
 .adset-group-row .conv{color:var(--amber-dark);font-weight:700;}
+
+/* ---- Citas de GHL en la tabla de creativos ---- */
+.citas-badge{display:inline-flex;align-items:center;gap:4px;background:rgba(14,138,125,0.1);color:var(--teal);border:1px solid rgba(14,138,125,0.3);border-radius:20px;padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap;}
+.citas-badge.zero{background:transparent;color:var(--silver);border-color:var(--border);font-weight:500;}
+.citas-badge .chev{font-size:9px;}
+.citas-row td{padding:0;border-bottom:1px solid var(--border);}
+.citas-panel{background:#faf7fb;padding:10px 16px 14px 16px;text-align:left;}
+.citas-panel-title{font-size:10.5px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+table.citas-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+table.citas-table th{background:rgba(14,138,125,0.06);font-size:9.5px;text-transform:uppercase;color:var(--teal);text-align:left;padding:6px 10px;letter-spacing:.2px;}
+table.citas-table td{padding:7px 10px;font-size:11.5px;font-weight:500;color:var(--text);border-top:1px solid var(--border);text-align:left;background:transparent;}
+table.citas-table tr:first-child td{border-top:none;}
+.utm-pill{background:var(--smoke);border-radius:5px;padding:1px 6px;font-size:10px;color:var(--text-muted);white-space:nowrap;}
 
 .ai-panel{background:var(--card);border:1px solid var(--amber);border-radius:12px;padding:18px;margin-top:14px;font-size:13.5px;line-height:1.6;color:var(--text);}
 .ai-panel h2{font-size:14px;color:var(--purple);margin:12px 0 5px;}
@@ -177,8 +309,22 @@ td.weak-cell{color:var(--silver);font-weight:500;}
   .actions .btn{flex:1;min-width:120px;}
   .controls-panel{flex-direction:column;align-items:stretch;}
   .segmented{width:100%;}
-  .segmented button{flex:1;}
+  .segmented button{flex:1;font-size:11.5px;padding:8px 6px;}
   .account-link{max-width:150px;}
   .bar-label.multi{font-size:10px;}
   .platform-tag{font-size:7px;padding:1px 3px;}
+  /* El boton de modo nocturno flotaba encima del titulo/logo en
+     pantallas angostas - se vuelve parte del flujo normal en vez de
+     quedar en posicion absoluta. */
+  .theme-toggle{position:static;margin-bottom:6px;}
+  /* Las columnas fijas del embudo (icono+texto a la izquierda, costo a
+     la derecha) no se achicaban en celular - dejaban muy poco espacio
+     para la barra en si en pantallas angostas. */
+  .funnel-icon-col{width:78px;gap:4px;}
+  .funnel-icon-col .row-label{font-size:8.5px;}
+  .funnel-icon-col .row-desc{display:none;}
+  .funnel-rate{width:66px;}
+  .rate-value{font-size:11px;}
+  .rate-desc{font-size:7.5px;}
+  .ga4-landing-badge{max-width:160px;}
 }

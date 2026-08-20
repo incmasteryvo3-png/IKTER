@@ -21,6 +21,8 @@ type InsightRow = {
   video_avg_watch_seconds: number;
   video_play_time_estimate: number;
   landing_page_views: number;
+  cost_per_link_click: number | null;
+  cost_per_landing_page_view: number | null;
   results: number;
   cost_per_result: number | null;
   actions: { action_type: string; value: string }[];
@@ -95,10 +97,12 @@ type Stage = {
   desc: string;
   key: keyof InsightRow;
   // 'percent': tasa entre esta etapa y rateOf (como esta ahora en Resultados).
-  // 'cost': costo (inversion / valor de esta etapa) - ej. CPC, costo por visita.
+  // 'metaField': muestra un campo que Meta YA trae calculado (cost_per_link_click,
+  // cost_per_landing_page_view, cost_per_result) - no se calcula nada aca.
   // 'none': no se muestra nada al lado (primera etapa del embudo).
-  rateMode: 'percent' | 'cost' | 'none';
+  rateMode: 'percent' | 'metaField' | 'none';
   rateOf?: keyof InsightRow;
+  rateField?: keyof InsightRow;
   rateDesc: string;
   // Si es true, junto al valor de Meta se muestra tambien el dato
   // cruzado de GA4 para esa misma etapa (solo aplica a "visitas a la
@@ -119,8 +123,8 @@ const PACKAGES: Record<string, { name: string; short: string; description: strin
     description: 'Lo esencial para decidir presupuesto: qué se gastó, quién de verdad hizo clic (no accidental), quién cargó la página, cuántos resultados y a qué costo.',
     stages: [
       { icon: '👥', label: 'ALCANCE', desc: 'Personas únicas', key: 'reach', rateMode: 'none', rateDesc: '' },
-      { icon: '🖱', label: 'CLICS ÚNICOS', desc: 'En el enlace', key: 'unique_link_clicks', rateMode: 'cost', rateOf: 'unique_link_clicks', rateDesc: 'CPC (clic en enlace)' },
-      { icon: '🌐', label: 'VISITAS', desc: 'A la landing', key: 'landing_page_views', rateMode: 'cost', rateOf: 'landing_page_views', rateDesc: 'Costo por visita', showGa4: true },
+      { icon: '🖱', label: 'CLICS ÚNICOS', desc: 'En el enlace', key: 'unique_link_clicks', rateMode: 'metaField', rateField: 'cost_per_link_click', rateDesc: 'CPC (clic en enlace)' },
+      { icon: '🌐', label: 'VISITAS', desc: 'A la landing', key: 'landing_page_views', rateMode: 'metaField', rateField: 'cost_per_landing_page_view', rateDesc: 'Costo por visita', showGa4: true },
       { icon: '📋', label: 'RESULTADOS', desc: 'Conversión', key: 'results', rateMode: 'percent', rateOf: 'landing_page_views', rateDesc: 'Result. / Visitas' },
     ],
   },
@@ -144,7 +148,7 @@ const PACKAGES: Record<string, { name: string; short: string; description: strin
       { icon: '👥', label: 'ALCANCE', desc: 'Personas únicas', key: 'reach', rateMode: 'none', rateDesc: '' },
       { icon: '🖱', label: 'CLICS (TODOS)', desc: 'Todo tipo de clic', key: 'clicks', rateMode: 'percent', rateOf: 'reach', rateDesc: 'CTR (todos)' },
       { icon: '💬', label: 'INTERACCIÓN', desc: 'Con la publicación', key: 'post_engagement', rateMode: 'percent', rateOf: 'clicks', rateDesc: 'Interac. / Clics' },
-      { icon: '🌐', label: 'VISITAS', desc: 'A la landing', key: 'landing_page_views', rateMode: 'cost', rateOf: 'landing_page_views', rateDesc: 'Costo por visita', showGa4: true },
+      { icon: '🌐', label: 'VISITAS', desc: 'A la landing', key: 'landing_page_views', rateMode: 'metaField', rateField: 'cost_per_landing_page_view', rateDesc: 'Costo por visita', showGa4: true },
       { icon: '📋', label: 'RESULTADOS', desc: 'Conversión', key: 'results', rateMode: 'percent', rateOf: 'landing_page_views', rateDesc: 'Result. / Visitas' },
     ],
   },
@@ -189,6 +193,9 @@ function fmt(n: number) {
 function pct(part: number, whole: number) {
   return whole ? `${((part / whole) * 100).toFixed(2).replace('.', ',')}%` : '—';
 }
+// Ya no se usa en el embudo (los costos ahora vienen directo de Meta,
+// ver cost_per_link_click/cost_per_landing_page_view/cost_per_result en
+// lib/meta.ts) - se deja por si hace falta en otro lugar mas adelante.
 function costPer(spend: number, count: number) {
   return count > 0 ? `$${(spend / count).toFixed(2)}` : '—';
 }
@@ -205,9 +212,18 @@ function shortDate(iso: string | null | undefined) {
   if (isNaN(d.getTime())) return null;
   return d.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
+// Meta reporta el MISMO evento real bajo varios nombres (action_type)
+// al mismo tiempo -- confirmado con datos reales: "view_content",
+// "omni_view_content" y "offsite_conversion.fb_pixel_view_content"
+// aparecen juntos con EL MISMO valor (86 = 86 = 86), porque son formas
+// distintas de atribuir el mismo evento, no tres eventos separados.
+// Por eso aca se toma solo UNO (el primero que aparezca en el arreglo
+// de la fila, en el orden en que Meta los mande) - nunca se suman,
+// sumar los alias de un mismo evento infla el numero varias veces.
 function getEventCount(row: InsightRow, types: string[]): number {
   if (!row.actions) return 0;
-  return row.actions.filter((a) => types.includes(a.action_type)).reduce((s, a) => s + parseInt(a.value || '0', 10), 0);
+  const match = row.actions.find((a) => types.includes(a.action_type));
+  return match ? parseInt(match.value || '0', 10) : 0;
 }
 // Nota: antes habia aqui una funcion "getDominantEvent" que adivinaba el
 // evento de conversion contando cuales acciones tuvieron mas ocurrencias.
@@ -228,6 +244,10 @@ type FunnelItem = {
 
 export default function Dashboard() {
   const router = useRouter();
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
   const [since, setSince] = useState(todayISO(-30));
   const [until, setUntil] = useState(todayISO());
   const [nCampaigns, setNCampaigns] = useState(2);
@@ -249,6 +269,7 @@ export default function Dashboard() {
   const [ga4LandingPages, setGa4LandingPages] = useState<Ga4LandingPage[]>([]);
   const [ga4Loading, setGa4Loading] = useState(true);
   const [ga4Error, setGa4Error] = useState<string | null>(null);
+  const [citasByAdId, setCitasByAdId] = useState<Record<string, any[]>>({});
 
   const loadInsights = useCallback(async (s: string, u: string) => {
     setQuerying(true);
@@ -289,9 +310,25 @@ export default function Dashboard() {
     }
   }, []);
 
+  // Lee las citas de GHL ya guardadas en Supabase (llegaron por webhook
+  // o backfill) - no le pregunta nada a la API de GHL en cada refresh,
+  // por eso no tiene "since/until" como Meta y GA4: siempre trae lo que
+  // hay guardado hasta el momento, que ya esta al dia por el webhook.
+  const loadCitas = useCallback(async () => {
+    try {
+      const res = await fetch('/api/citas');
+      const json = await res.json();
+      if (res.ok) setCitasByAdId(json.citasByAdId || {});
+    } catch {
+      // Silencioso a proposito: si GHL/citas falla, el resto del
+      // dashboard (Meta, GA4) debe seguir funcionando igual.
+    }
+  }, []);
+
   useEffect(() => {
     loadInsights(since, until);
     loadGa4(since, until);
+    loadCitas();
     supabaseBrowser
       .from('insight_snapshots')
       .select('fetched_at')
@@ -334,7 +371,7 @@ export default function Dashboard() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al sincronizar con Meta');
       setLastFetched(json.synced_at);
-      await Promise.all([loadInsights(since, until), loadGa4(since, until)]);
+      await Promise.all([loadInsights(since, until), loadGa4(since, until), loadCitas()]);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -439,6 +476,13 @@ export default function Dashboard() {
   return (
     <div className="wrap">
       <div className="header">
+        <button
+          className="theme-toggle"
+          onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          title={theme === 'dark' ? 'Cambiar a modo día' : 'Cambiar a modo nocturno'}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
         <img className="logo" src="/logo-mastery.png" alt="Mastery" />
         <h1 className="title">Reporte de campañas</h1>
         <p className="period">
@@ -457,17 +501,6 @@ export default function Dashboard() {
       </div>
 
       {error && <div className="error-banner">{error}</div>}
-
-      <Ga4Section
-        loading={ga4Loading}
-        error={ga4Error}
-        overview={ga4Overview}
-        channels={ga4Channels}
-        sources={ga4Sources}
-        landingPages={ga4LandingPages}
-        since={since}
-        until={until}
-      />
 
       <div className="section-title big">Meta Ads</div>
 
@@ -563,7 +596,7 @@ export default function Dashboard() {
               </div>
 
               <div className="results-table-wrap">
-                <ResultsTable ads={filteredAds} badges={badges} orderedAdsets={orderedAdsets} ga4SessionsByPath={ga4SessionsByPath} />
+                <ResultsTable ads={filteredAds} badges={badges} orderedAdsets={orderedAdsets} ga4SessionsByPath={ga4SessionsByPath} citasByAdId={citasByAdId} />
               </div>
 
               <AiCardPair payload={{ tipo: 'tabla de creativos', periodo: { since, until }, anuncios: filteredAds }} />
@@ -571,6 +604,17 @@ export default function Dashboard() {
           )}
         </>
       )}
+
+      <Ga4Section
+        loading={ga4Loading}
+        error={ga4Error}
+        overview={ga4Overview}
+        channels={ga4Channels}
+        sources={ga4Sources}
+        landingPages={ga4LandingPages}
+        since={since}
+        until={until}
+      />
     </div>
   );
 }
@@ -603,10 +647,15 @@ function Badge({ label, name, value }: { label: string; name: string; value: str
 // Calcula lo que va en la columna de "tasa" (al otro lado de la barra):
 // un porcentaje (ej. "Result. / Visitas"), un costo (ej. "CPC"), o nada.
 function RateCell({ stage, data }: { stage: Stage; data: InsightRow }) {
-  if (stage.rateMode === 'none' || !stage.rateOf) return null;
-  const value = stage.rateMode === 'cost'
-    ? costPer(data.spend, data[stage.rateOf] as number)
-    : pct(data[stage.key] as number, data[stage.rateOf] as number);
+  if (stage.rateMode === 'none') return null;
+  if (stage.rateMode === 'metaField') {
+    if (!stage.rateField) return null;
+    const raw = data[stage.rateField] as number | null | undefined;
+    if (raw == null) return null; // Meta no trajo este dato para esta fila - no se inventa
+    return <><div className="rate-value">${raw.toFixed(2)}</div><div className="rate-desc">{stage.rateDesc}</div></>;
+  }
+  if (!stage.rateOf) return null;
+  const value = pct(data[stage.key] as number, data[stage.rateOf] as number);
   if (value === '—') return null;
   return <><div className="rate-value">{value}</div><div className="rate-desc">{stage.rateDesc}</div></>;
 }
@@ -638,7 +687,6 @@ function FunnelGroup({ items, stages }: { items: FunnelItem[]; stages: Stage[] }
         </div>
         {stages.map((st, i) => {
           const cp = clipPath(widths[i], widths[i + 1]);
-          const ref = items[0]?.data;
           return (
             <div className="funnel-row" key={st.label}>
               <div className="funnel-icon-col"><div className="icon-circle">{st.icon}</div><div><div className="row-label">{st.label}</div><div className="row-desc">{st.desc}</div></div></div>
@@ -650,7 +698,11 @@ function FunnelGroup({ items, stages }: { items: FunnelItem[]; stages: Stage[] }
                   </div>
                 ))}
               </div>
-              <div className="funnel-rate">{ref && <RateCell stage={st} data={ref} />}</div>
+              <div className="funnel-rate multi">
+                {items.map((s) => (
+                  <div className={`funnel-rate-item ${s.cls}`} key={s.id}><RateCell stage={st} data={s.data} /></div>
+                ))}
+              </div>
             </div>
           );
         })}
@@ -775,11 +827,6 @@ function AccountBox({ item }: { item: FunnelItem }) {
           {isCampaign && d.objective_label && <div className="account-event">Objetivo: {d.objective_label}</div>}
           {isCampaign && d.buying_type_label && <div className="account-event">Tipo de compra: {d.buying_type_label}</div>}
           {item.badge && <div className="account-event">Evento de conversión: {item.badge}</div>}
-          {item.landingUrl && (
-            <a className="account-event account-link" href={item.landingUrl} target="_blank" rel="noopener noreferrer" title={item.landingUrl}>
-              🔗 {shortUrl(item.landingUrl)}{d.landing_urls && d.landing_urls.length > 1 ? ` (+${d.landing_urls.length - 1})` : ''}
-            </a>
-          )}
         </div>
         {from && <div className="account-event">Período activo: {from}{to ? ` – ${to}` : ' – en curso'}</div>}
       </div>
@@ -787,14 +834,15 @@ function AccountBox({ item }: { item: FunnelItem }) {
   );
 }
 
-// Par de tarjetas de analisis (Gemini + Claude). Cada una se genera bajo
-// demanda con su propio boton, para no gastar cuota de las APIs de IA
-// automaticamente en cada carga de pagina.
+// Par de tarjetas de analisis (Gemini + Claude por debajo, mostradas
+// como "VISION" y "ATALAYA" en la interfaz). "provider" NO cambia -
+// sigue apuntando a /api/analyze/gemini y /api/analyze/claude, que son
+// los que de verdad llaman a cada IA - solo cambia el nombre visible.
 function AiCardPair({ payload }: { payload: unknown }) {
   return (
     <div className="ai-cards-row">
-      <AiCard provider="gemini" title="Gemini" payload={payload} />
-      <AiCard provider="claude" title="Claude" payload={payload} />
+      <AiCard provider="gemini" title="VISION" payload={payload} />
+      <AiCard provider="claude" title="ATALAYA" payload={payload} />
     </div>
   );
 }
@@ -850,24 +898,78 @@ type AdsetGroup = {
   endTime: string | null;
 };
 
-function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath }: { ads: AdRow[]; badges: any; orderedAdsets: AdsetGroup[]; ga4SessionsByPath: Record<string, number> }) {
-  function Cell({ value, isBest, isWeak, format }: { value: number; isBest: boolean; isWeak: boolean; format: (v: number) => string }) {
-    return <td className={isBest ? 'best-cell' : isWeak ? 'weak-cell' : ''}>{format(value)}</td>;
+function CitasPanelRow({ colSpan, adId, citas, open }: { colSpan: number; adId: string; citas: any[] | undefined; open: boolean }) {
+  const list = citas || [];
+  if (!open || list.length === 0) return null;
+  return (
+    <tr className="citas-row">
+      <td colSpan={colSpan}>
+        <div className="citas-panel">
+          <div className="citas-panel-title">📅 Citas agendadas desde este anuncio ({list.length})</div>
+          <table className="citas-table">
+            <thead>
+              <tr><th>Nombre</th><th>Teléfono</th><th>Email</th><th>Origen (UTM)</th><th>Fecha y hora de la cita</th><th>Agendada el</th></tr>
+            </thead>
+            <tbody>
+              {list.map((c, i) => (
+                <tr key={i}>
+                  <td>{c.contact_name || '—'}</td>
+                  <td>{c.contact_phone || '—'}</td>
+                  <td>{c.contact_email || '—'}</td>
+                  <td>{c.utm_source ? <span className="utm-pill">{c.utm_source}{c.utm_medium ? ` / ${c.utm_medium}` : ''}</span> : '—'}</td>
+                  <td>{c.appointment_start_at ? new Date(c.appointment_start_at).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
+                  <td>{c.appointment_created_at ? new Date(c.appointment_created_at).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath, citasByAdId }: { ads: AdRow[]; badges: any; orderedAdsets: AdsetGroup[]; ga4SessionsByPath: Record<string, number>; citasByAdId: Record<string, any[]> }) {
+  const [openAdId, setOpenAdId] = useState<string | null>(null);
+
+  // La barra vertical dentro de cada celda ("embudo visual" original) -
+  // la altura es proporcional al maximo de esa columna especifica, no
+  // al maximo global, para que cada metrica se pueda comparar dentro de
+  // si misma.
+  function BarCell({ value, max, isBest, isWeak, format }: { value: number; max: number; isBest: boolean; isWeak: boolean; format: (v: number) => string }) {
+    const pctH = max > 0 ? Math.max(8, Math.round((value / max) * 100)) : 0;
+    return (
+      <td className={`bar-cell ${isBest ? 'best' : isWeak ? 'weak' : ''}`}>
+        <div className="bar-track"><div className="bar-fill" style={{ height: `${pctH}%` }} /></div>
+        <div className="bar-value">{format(value)}</div>
+      </td>
+    );
   }
 
-  const colCount = 7 + EVENTS.length; // Anuncio + Alcance + Reprod. + T.prom + T.rep + Visitas + eventos
+  // Maximo de cada evento de conversion entre los anuncios visibles,
+  // para poder dibujar su barra proporcional (igual que ya se hacia
+  // para alcance/reproducciones/tiempos con "badges").
+  const maxByEvent = useMemo(() => {
+    const map: Record<string, number> = {};
+    EVENTS.forEach((ev) => { map[ev.key] = ads.reduce((m, a) => Math.max(m, getEventCount(a, ev.types)), 0); });
+    return map;
+  }, [ads]);
+
+  const colCount = 9 + EVENTS.length; // Anuncio + Landing + Alcance + Reprod. + T.prom + T.rep + Visitas + eventos + Citas
 
   return (
-    <table className="results-table">
+    <table className="results-table wide-table">
       <thead>
         <tr>
           <th>Anuncio</th>
+          <th title="Landing page real configurada en la llamada a la acción de ESTE anuncio">Landing</th>
           <th>Alc.</th>
           <th>Reprod.</th>
           <th>T.prom</th>
           <th>T.rep</th>
           <th title="Visitas a la landing: Meta / GA4">Visitas (Meta/GA4)</th>
           {EVENTS.map((ev) => <th key={ev.key} title={ev.label}>{ev.short}</th>)}
+          <th title="Citas agendadas en GHL, cruzadas por el anuncio real que las generó" style={{ color: 'var(--purple)' }}>Citas (GHL)</th>
         </tr>
       </thead>
       <tbody>
@@ -896,27 +998,49 @@ function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath }: { ads: 
                 const isTopOverall = a === badges.maxReach && a === badges.maxPlaytime;
                 const path = normalizePath(a.landing_url);
                 const ga4Value = path && path in ga4SessionsByPath ? ga4SessionsByPath[path] : null;
+                const citas = citasByAdId[a.level_id];
+                const isOpen = openAdId === a.level_id;
                 return (
-                  <tr key={a.level_id} className={isTopOverall ? 'best-row' : ''}>
-                    <td>
-                      <div className="ad-name-cell" title={a.level_name}>
-                        {(a === badges.maxReach || a === badges.maxPlaytime) && <span className="crown">★</span>}
-                        {isWeakest && <span className="warn">⚠</span>}
-                        {a.level_name}
-                      </div>
-                    </td>
-                    <Cell value={a.reach} isBest={a === badges.maxReach} isWeak={isWeakest} format={fmt} />
-                    <Cell value={a.video_plays} isBest={a === badges.maxPlays} isWeak={isWeakest} format={fmt} />
-                    <Cell value={a.video_avg_watch_seconds} isBest={a === badges.maxAvg} isWeak={isWeakest} format={(v) => `${v.toFixed(0)}s`} />
-                    <Cell value={a.video_play_time_estimate} isBest={a === badges.maxPlaytime} isWeak={isWeakest} format={fmt} />
-                    <td className={a.landing_page_views === 0 ? 'weak-cell' : ''} title={a.landing_url || undefined}>
-                      {fmt(a.landing_page_views)}{ga4Value != null ? ` / ${fmt(ga4Value)}` : ''}
-                    </td>
-                    {EVENTS.map((ev) => {
-                      const count = getEventCount(a, ev.types);
-                      return <td key={ev.key} className={count === 0 ? 'weak-cell' : ''}>{count}</td>;
-                    })}
-                  </tr>
+                  <>
+                    <tr key={a.level_id} className={isTopOverall ? 'best-row' : ''}>
+                      <td>
+                        <div className="ad-name-cell" title={a.level_name}>
+                          {(a === badges.maxReach || a === badges.maxPlaytime) && <span className="crown">★</span>}
+                          {isWeakest && <span className="warn">⚠</span>}
+                          {a.level_name}
+                        </div>
+                      </td>
+                      <td>
+                        {a.landing_url ? (
+                          <a className="ad-landing-badge" href={a.landing_url} target="_blank" rel="noopener noreferrer" title={a.landing_url}>
+                            🔗 {shortUrl(a.landing_url)}
+                          </a>
+                        ) : (
+                          <span className="ad-landing-badge none">Sin detectar</span>
+                        )}
+                      </td>
+                      <BarCell value={a.reach} max={badges.maxReach.reach} isBest={a === badges.maxReach} isWeak={isWeakest} format={fmt} />
+                      <BarCell value={a.video_plays} max={badges.maxPlays.video_plays} isBest={a === badges.maxPlays} isWeak={isWeakest} format={fmt} />
+                      <BarCell value={a.video_avg_watch_seconds} max={badges.maxAvg.video_avg_watch_seconds} isBest={a === badges.maxAvg} isWeak={isWeakest} format={(v) => `${v.toFixed(0)}s`} />
+                      <BarCell value={a.video_play_time_estimate} max={badges.maxPlaytime.video_play_time_estimate} isBest={a === badges.maxPlaytime} isWeak={isWeakest} format={fmt} />
+                      <td className={a.landing_page_views === 0 ? 'weak-cell' : ''} title={a.landing_url || undefined}>
+                        {fmt(a.landing_page_views)}{ga4Value != null ? ` / ${fmt(ga4Value)}` : ''}
+                      </td>
+                      {EVENTS.map((ev) => {
+                        const count = getEventCount(a, ev.types);
+                        const max = maxByEvent[ev.key];
+                        return <BarCell key={ev.key} value={count} max={max} isBest={max > 0 && count === max} isWeak={count === 0} format={(v) => String(v)} />;
+                      })}
+                      <td onClick={() => citas && citas.length > 0 && setOpenAdId(isOpen ? null : a.level_id)}>
+                        {citas && citas.length > 0 ? (
+                          <span className="citas-badge" style={{ cursor: 'pointer' }}>{citas.length} cita{citas.length !== 1 ? 's' : ''} <span className="chev">{isOpen ? '▴' : '▾'}</span></span>
+                        ) : (
+                          <span className="citas-badge zero">0 citas</span>
+                        )}
+                      </td>
+                    </tr>
+                    <CitasPanelRow colSpan={colCount} adId={a.level_id} citas={citas} open={isOpen} />
+                  </>
                 );
               })}
             </>
@@ -1053,7 +1177,9 @@ function Ga4Section({
                   <tbody>
                     {landingPages.map((p) => (
                       <tr key={p.landing_page}>
-                        <td className="ad-name-cell" title={p.landing_page} style={{ maxWidth: 260 }}>{p.landing_page}</td>
+                        <td style={{ textAlign: 'left', maxWidth: 260 }}>
+                          <span className="ga4-landing-badge" title={p.landing_page}>🌐 {p.landing_page}</span>
+                        </td>
                         <td>{fmt(p.sessions)}</td>
                         <td className={p.conversions === 0 ? 'weak-cell' : ''}>{fmt(p.conversions)}</td>
                         <td>{pctFromRate(p.bounce_rate)}</td>
