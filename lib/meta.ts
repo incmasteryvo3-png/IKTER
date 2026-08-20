@@ -384,7 +384,7 @@ export async function fetchAdLandingUrls(params: {
 
   const batch = uniqueIds.map((adId) => ({
     method: 'GET',
-    relative_url: `${adId}?fields=creative{object_story_spec,asset_feed_spec,effective_object_story_id}`,
+    relative_url: `${adId}?fields=creative{object_story_spec,asset_feed_spec{link_urls,bodies,titles,images,videos,call_to_action_types},effective_object_story_id}`,
   }));
   const rows = await metaBatch(batch, token);
 

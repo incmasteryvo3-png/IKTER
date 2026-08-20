@@ -28,16 +28,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Falta META_SYSTEM_USER_TOKEN en el servidor.' }, { status: 500 });
   }
 
-  // Se pide la creatividad COMPLETA, sin limitar a subcampos
-  // especificos, para ver toda la estructura real de una vez - asi no
-  // hay que ir adivinando y pidiendo de nuevo cada campo por separado.
-  const url = `https://graph.facebook.com/${apiVersion}/${adId}?fields=name,creative{object_story_spec,asset_feed_spec,effective_object_story_id,link_url,url_tags}&access_token=${token}`;
+  const adUrl = `https://graph.facebook.com/${apiVersion}/${adId}?fields=name,creative{object_story_spec,asset_feed_spec{link_urls,bodies,titles,images,videos,call_to_action_types},effective_object_story_id,link_url,url_tags}&access_token=${token}`;
+  const adRes = await fetch(adUrl);
+  const adBody = await adRes.json();
 
-  const res = await fetch(url);
-  const body = await res.text();
+  if (!adRes.ok) {
+    return NextResponse.json(adBody, { status: adRes.status });
+  }
 
-  return new NextResponse(body, {
-    status: res.status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  // Si la creatividad no tiene object_story_spec pero si trae un
+  // effective_object_story_id (publicacion organica de la pagina), se
+  // sigue ese hilo automaticamente y se trae la publicacion tambien -
+  // asi se ve todo junto de una sola llamada, sin tener que pedir dos
+  // diagnosticos por separado.
+  const postId = adBody?.creative?.effective_object_story_id;
+  let post = null;
+  if (postId) {
+    const postUrl = `https://graph.facebook.com/${apiVersion}/${postId}?fields=link,message,attachments{url,unshimmed_url,type,title,description,target}&access_token=${token}`;
+    const postRes = await fetch(postUrl);
+    post = await postRes.json();
+  }
+
+  return NextResponse.json({ ad: adBody, post });
 }
