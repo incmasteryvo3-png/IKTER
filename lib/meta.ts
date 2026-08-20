@@ -384,11 +384,18 @@ export async function fetchAdLandingUrls(params: {
 
   const batch = uniqueIds.map((adId) => ({
     method: 'GET',
-    relative_url: `${adId}?fields=creative{object_story_spec,asset_feed_spec}`,
+    relative_url: `${adId}?fields=creative{object_story_spec,asset_feed_spec,effective_object_story_id}`,
   }));
   const rows = await metaBatch(batch, token);
 
   const result: Record<string, string | null> = {};
+  // Anuncios que usan una publicacion YA EXISTENTE de la pagina (sin
+  // object_story_spec propio) - confirmado con un anuncio real: la
+  // creatividad solo trae "effective_object_story_id", nada de link.
+  // Para estos se necesita una segunda llamada, aparte, a esa
+  // publicacion puntual para leer su link real.
+  const postIdByAdId: Record<string, string> = {};
+
   uniqueIds.forEach((adId, i) => {
     const creative = rows[i]?.creative;
     // El orden importa: link_data.call_to_action.value.link es el link
@@ -406,8 +413,39 @@ export async function fetchAdLandingUrls(params: {
       creative?.asset_feed_spec?.link_urls?.[0]?.website_url ||
       creative?.asset_feed_spec?.videos?.[0]?.call_to_action?.[0]?.value?.link ||
       null;
-    result[adId] = link;
+
+    if (link) {
+      result[adId] = link;
+    } else if (creative?.effective_object_story_id) {
+      result[adId] = null; // se completa abajo, con la segunda llamada
+      postIdByAdId[adId] = creative.effective_object_story_id;
+    } else {
+      result[adId] = null;
+    }
   });
+
+  // Segunda llamada: leer el link real de cada publicacion de pagina
+  // que se identifico arriba. Se piden "link" (posts tipo link simple)
+  // y "attachments{url,unshimmed_url}" (posts con adjuntos, ej. cuando
+  // el link viene dentro de una tarjeta/carrusel).
+  const postIds = Object.entries(postIdByAdId);
+  if (postIds.length > 0) {
+    const postBatch = postIds.map(([, postId]) => ({
+      method: 'GET',
+      relative_url: `${postId}?fields=link,attachments{url,unshimmed_url}`,
+    }));
+    const postRows = await metaBatch(postBatch, token);
+    postIds.forEach(([adId], i) => {
+      const post = postRows[i];
+      const link: string | null =
+        post?.link ||
+        post?.attachments?.data?.[0]?.unshimmed_url ||
+        post?.attachments?.data?.[0]?.url ||
+        null;
+      result[adId] = link;
+    });
+  }
+
   return result;
 }
 
