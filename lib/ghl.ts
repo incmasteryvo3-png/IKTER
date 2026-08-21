@@ -127,12 +127,29 @@ export async function fetchGhlContactAttribution(params: {
 }): Promise<GhlContactAttribution> {
   const { token, contactId } = params;
   const url = `${API_BASE}/contacts/${contactId}`;
-  const res = await fetch(url, { headers: headers(token) });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`GHL /contacts/${contactId} respondio ${res.status}: ${body.slice(0, 300)}`);
+
+  // Reintenta hasta 4 veces si GHL responde 429 (demasiadas peticiones),
+  // esperando cada vez un poco mas (0.5s, 1s, 2s, 4s) - esto es normal
+  // cuando se procesan muchos contactos seguidos, no un error real.
+  let lastError = '';
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await fetch(url, { headers: headers(token) });
+    if (res.status === 429) {
+      lastError = 'GHL respondio 429 (demasiadas peticiones) - reintentando';
+      await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt)));
+      continue;
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`GHL /contacts/${contactId} respondio ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const data = await res.json();
+    return extractAttributionFromContact(data);
   }
-  const data = await res.json();
+  throw new Error(`GHL /contacts/${contactId}: ${lastError} (se agotaron los reintentos)`);
+}
+
+function extractAttributionFromContact(data: any): GhlContactAttribution {
   const contact = data.contact || data;
 
   // customFields llega como arreglo [{id, key/name, value}] en la API v2.

@@ -45,10 +45,11 @@ export async function POST(req: NextRequest) {
     calendarDiagnostics = result.diagnostics;
     calendarsRaw = result.calendarsRaw;
 
-    // Se procesan de a 10 citas en paralelo (no todas de golpe, para no
-    // saturar la API de GHL con cientos de llamadas simultaneas; no una
-    // por una, para no repetir el problema de lentitud que causo el 504).
-    const CHUNK_SIZE = 10;
+    // Se procesan de a 5 citas en paralelo, con una pausa corta entre
+    // tandas - 10 a la vez fue demasiado rapido y GHL empezo a
+    // responder 429 (demasiadas peticiones). 5 + pausa es mas lento
+    // pero confiable.
+    const CHUNK_SIZE = 5;
     for (let i = 0; i < result.appointments.length; i += CHUNK_SIZE) {
       const chunk = result.appointments.slice(i, i + CHUNK_SIZE);
       const chunkResults = await Promise.all(
@@ -85,6 +86,10 @@ export async function POST(req: NextRequest) {
       for (const r of chunkResults) {
         if (r.ok) inserted++;
         else { failed++; errors.push(`${r.id}: ${r.msg}`); }
+      }
+      // Pausa corta entre tandas para no saturar la API de GHL.
+      if (i + CHUNK_SIZE < result.appointments.length) {
+        await new Promise((r) => setTimeout(r, 300));
       }
     }
   } catch (err: any) {
