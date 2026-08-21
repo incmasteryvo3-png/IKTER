@@ -33,56 +33,68 @@ export type GhlAppointmentRaw = {
   dateAdded?: string;
 };
 
+export type GhlCalendarDiagnostic = {
+  calendarId: string;
+  status: 'ok' | 'error';
+  eventCount: number;
+  error?: string;
+};
+
 // GHL no deja pedir "todas las citas de la location" en una sola
 // llamada - exige indicar DE QUE CALENDARIO especificamente (confirmado
 // con el error real: "Either of userId, calendarId or groupId is
 // required"). Por eso primero se trae la lista de calendarios de la
 // cuenta, y despues se piden las citas calendario por calendario.
-async function fetchGhlCalendarIds(params: { token: string; locationId: string }): Promise<string[]> {
+async function fetchGhlCalendarIds(params: { token: string; locationId: string }): Promise<{ ids: string[]; raw: any }> {
   const { token, locationId } = params;
   const url = `${API_BASE}/calendars/?locationId=${locationId}`;
   const res = await fetch(url, { headers: headers(token) });
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`GHL /calendars respondio ${res.status}: ${body.slice(0, 300)}`);
+    throw new Error(`GHL /calendars respondio ${res.status}: ${JSON.stringify(data).slice(0, 400)}`);
   }
-  const data = await res.json();
   const calendars: any[] = data.calendars || [];
-  return calendars.map((c) => c.id).filter(Boolean);
+  return { ids: calendars.map((c) => c.id).filter(Boolean), raw: data };
 }
 
 // Trae los eventos de calendario (citas) de un rango de fechas, de
-// TODOS los calendarios de la location, uno por uno.
+// TODOS los calendarios de la location, uno por uno. Devuelve tanto las
+// citas encontradas como un diagnostico calendario-por-calendario, para
+// poder ver en la MISMA respuesta que exito o fallo cada uno - sin
+// tener que ir a buscar logs del servidor aparte.
 export async function fetchGhlAppointments(params: {
   token: string;
   locationId: string;
   startTime: string; // ISO
   endTime: string; // ISO
-}): Promise<GhlAppointmentRaw[]> {
+}): Promise<{ appointments: GhlAppointmentRaw[]; diagnostics: GhlCalendarDiagnostic[]; calendarsRaw: any }> {
   const { token, locationId, startTime, endTime } = params;
 
-  const calendarIds = await fetchGhlCalendarIds({ token, locationId });
+  const { ids: calendarIds, raw: calendarsRaw } = await fetchGhlCalendarIds({ token, locationId });
   if (calendarIds.length === 0) {
-    throw new Error('GHL no devolvio ningun calendario para esta location - revisa que GHL_LOCATION_ID sea correcto.');
+    // Se devuelve vacio en vez de tirar error - asi la respuesta de
+    // /api/backfill-ghl igual trae el "calendarsRaw" crudo, para poder
+    // ver que devolvio GHL aunque no haya encontrado ningun ID.
+    return { appointments: [], diagnostics: [], calendarsRaw };
   }
 
   const allAppointments: GhlAppointmentRaw[] = [];
+  const diagnostics: GhlCalendarDiagnostic[] = [];
+
   for (const calendarId of calendarIds) {
     const url = `${API_BASE}/calendars/events?locationId=${locationId}&calendarId=${calendarId}&startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}`;
     const res = await fetch(url, { headers: headers(token) });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      // Un calendario que falle no debe tumbar a los demas - se
-      // registra en consola y se sigue con el resto.
-      console.error(`GHL /calendars/events (calendarId=${calendarId}) respondio ${res.status}: ${body.slice(0, 300)}`);
+      diagnostics.push({ calendarId, status: 'error', eventCount: 0, error: JSON.stringify(data).slice(0, 400) });
       continue;
     }
-    const data = await res.json();
     const events = data.events || data.appointments || [];
+    diagnostics.push({ calendarId, status: 'ok', eventCount: events.length });
     allAppointments.push(...events);
   }
 
-  return allAppointments;
+  return { appointments: allAppointments, diagnostics, calendarsRaw };
 }
 
 export type GhlContactAttribution = {

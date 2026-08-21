@@ -31,16 +31,20 @@ export async function POST(req: NextRequest) {
   const db = supabaseAdmin();
   let inserted = 0, skipped = 0, failed = 0;
   const errors: string[] = [];
+  let calendarDiagnostics: any[] = [];
+  let calendarsRaw: any = null;
 
   try {
-    const appointments = await fetchGhlAppointments({
+    const result = await fetchGhlAppointments({
       token,
       locationId,
       startTime: new Date(since).toISOString(),
       endTime: new Date(until).toISOString(),
     });
+    calendarDiagnostics = result.diagnostics;
+    calendarsRaw = result.calendarsRaw;
 
-    for (const appt of appointments) {
+    for (const appt of result.appointments) {
       try {
         const attribution = await fetchGhlContactAttribution({ token, contactId: appt.contactId });
 
@@ -74,7 +78,7 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message, calendarsRaw }, { status: 500 });
   }
 
   return NextResponse.json({
@@ -84,5 +88,11 @@ export async function POST(req: NextRequest) {
     skipped,
     failed,
     errors: errors.slice(0, 20), // solo las primeras 20 para no saturar la respuesta
+    // Diagnostico: cuantos calendarios encontro y cuantos eventos trajo
+    // cada uno (o el error de ese calendario en particular). Esto es lo
+    // que reemplaza tener que ir a buscar en los logs de Vercel.
+    calendars_found: calendarDiagnostics.length,
+    calendar_diagnostics: calendarDiagnostics,
+    calendars_raw: calendarsRaw,
   });
 }

@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Falta META_SYSTEM_USER_TOKEN en el servidor.' }, { status: 500 });
   }
 
-  const adUrl = `https://graph.facebook.com/${apiVersion}/${adId}?fields=name,creative{object_story_spec,asset_feed_spec{link_urls,bodies,titles,images,videos,call_to_action_types},effective_object_story_id,link_url,url_tags}&access_token=${token}`;
+  const adUrl = `https://graph.facebook.com/${apiVersion}/${adId}?fields=name,creative{object_story_spec,asset_feed_spec{link_urls,bodies,titles,images,videos{call_to_action,video_id},call_to_action_types},effective_object_story_id,link_url,url_tags}&access_token=${token}`;
   const adRes = await fetch(adUrl);
   const adBody = await adRes.json();
 

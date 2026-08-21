@@ -384,7 +384,7 @@ export async function fetchAdLandingUrls(params: {
 
   const batch = uniqueIds.map((adId) => ({
     method: 'GET',
-    relative_url: `${adId}?fields=creative{object_story_spec,asset_feed_spec{link_urls,bodies,titles,images,videos,call_to_action_types},effective_object_story_id}`,
+    relative_url: `${adId}?fields=creative{object_story_spec,asset_feed_spec{link_urls,bodies,titles,images,videos{call_to_action,video_id},call_to_action_types},effective_object_story_id}`,
   }));
   const rows = await metaBatch(batch, token);
 
@@ -411,7 +411,8 @@ export async function fetchAdLandingUrls(params: {
       creative?.object_story_spec?.link_data?.link ||
       creative?.object_story_spec?.video_data?.call_to_action?.value?.link ||
       creative?.asset_feed_spec?.link_urls?.[0]?.website_url ||
-      creative?.asset_feed_spec?.videos?.[0]?.call_to_action?.[0]?.value?.link ||
+      creative?.asset_feed_spec?.videos?.[0]?.call_to_action?.[0]?.value?.link || // call_to_action como arreglo
+      (creative?.asset_feed_spec?.videos?.[0]?.call_to_action as any)?.value?.link || // call_to_action como objeto (respaldo, sin confirmar aun)
       null;
 
     if (link) {
