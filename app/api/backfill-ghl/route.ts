@@ -45,37 +45,46 @@ export async function POST(req: NextRequest) {
     calendarDiagnostics = result.diagnostics;
     calendarsRaw = result.calendarsRaw;
 
-    for (const appt of result.appointments) {
-      try {
-        const attribution = await fetchGhlContactAttribution({ token, contactId: appt.contactId });
-
-        const { error, count } = await db
-          .from('ghl_appointments')
-          .upsert(
-            {
-              ghl_appointment_id: appt.id,
-              ghl_contact_id: appt.contactId,
-              contact_name: attribution.name,
-              contact_phone: attribution.phone,
-              contact_email: attribution.email,
-              meta_campaign_id: attribution.campaignId,
-              meta_adset_id: attribution.adsetId,
-              meta_ad_id: attribution.adId,
-              utm_source: attribution.utmSource,
-              utm_medium: attribution.utmMedium,
-              appointment_start_at: appt.startTime,
-              appointment_created_at: appt.dateAdded || null,
-              source: 'backfill',
-              raw: appt,
-            },
-            { onConflict: 'ghl_appointment_id', ignoreDuplicates: true }
-          );
-
-        if (error) { failed++; errors.push(`${appt.id}: ${error.message}`); }
-        else inserted++;
-      } catch (err: any) {
-        failed++;
-        errors.push(`${appt.id}: ${err.message}`);
+    // Se procesan de a 10 citas en paralelo (no todas de golpe, para no
+    // saturar la API de GHL con cientos de llamadas simultaneas; no una
+    // por una, para no repetir el problema de lentitud que causo el 504).
+    const CHUNK_SIZE = 10;
+    for (let i = 0; i < result.appointments.length; i += CHUNK_SIZE) {
+      const chunk = result.appointments.slice(i, i + CHUNK_SIZE);
+      const chunkResults = await Promise.all(
+        chunk.map(async (appt) => {
+          try {
+            const attribution = await fetchGhlContactAttribution({ token, contactId: appt.contactId });
+            const { error } = await db
+              .from('ghl_appointments')
+              .upsert(
+                {
+                  ghl_appointment_id: appt.id,
+                  ghl_contact_id: appt.contactId,
+                  contact_name: attribution.name,
+                  contact_phone: attribution.phone,
+                  contact_email: attribution.email,
+                  meta_campaign_id: attribution.campaignId,
+                  meta_adset_id: attribution.adsetId,
+                  meta_ad_id: attribution.adId,
+                  utm_source: attribution.utmSource,
+                  utm_medium: attribution.utmMedium,
+                  appointment_start_at: appt.startTime,
+                  appointment_created_at: appt.dateAdded || null,
+                  source: 'backfill',
+                  raw: appt,
+                },
+                { onConflict: 'ghl_appointment_id', ignoreDuplicates: true }
+              );
+            return error ? { ok: false, id: appt.id, msg: error.message } : { ok: true };
+          } catch (err: any) {
+            return { ok: false, id: appt.id, msg: err.message };
+          }
+        })
+      );
+      for (const r of chunkResults) {
+        if (r.ok) inserted++;
+        else { failed++; errors.push(`${r.id}: ${r.msg}`); }
       }
     }
   } catch (err: any) {

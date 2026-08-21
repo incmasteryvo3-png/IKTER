@@ -81,17 +81,26 @@ export async function fetchGhlAppointments(params: {
   const allAppointments: GhlAppointmentRaw[] = [];
   const diagnostics: GhlCalendarDiagnostic[] = [];
 
-  for (const calendarId of calendarIds) {
-    const url = `${API_BASE}/calendars/events?locationId=${locationId}&calendarId=${calendarId}&startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}`;
-    const res = await fetch(url, { headers: headers(token) });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      diagnostics.push({ calendarId, status: 'error', eventCount: 0, error: JSON.stringify(data).slice(0, 400) });
-      continue;
-    }
-    const events = data.events || data.appointments || [];
-    diagnostics.push({ calendarId, status: 'ok', eventCount: events.length });
-    allAppointments.push(...events);
+  // Se piden TODOS los calendarios al mismo tiempo (en paralelo), no
+  // uno por uno en fila - con 17 calendarios, hacerlo en fila puede
+  // tardar lo suficiente para que Vercel corte la funcion por tiempo
+  // (error 504).
+  const results = await Promise.all(
+    calendarIds.map(async (calendarId) => {
+      const url = `${API_BASE}/calendars/events?locationId=${locationId}&calendarId=${calendarId}&startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}`;
+      const res = await fetch(url, { headers: headers(token) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { calendarId, status: 'error' as const, eventCount: 0, error: JSON.stringify(data).slice(0, 400), events: [] as GhlAppointmentRaw[] };
+      }
+      const events = data.events || data.appointments || [];
+      return { calendarId, status: 'ok' as const, eventCount: events.length, events };
+    })
+  );
+
+  for (const r of results) {
+    diagnostics.push({ calendarId: r.calendarId, status: r.status, eventCount: r.eventCount, error: 'error' in r ? r.error : undefined });
+    allAppointments.push(...r.events);
   }
 
   return { appointments: allAppointments, diagnostics, calendarsRaw };
