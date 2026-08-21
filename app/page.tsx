@@ -930,7 +930,6 @@ function CitasPanelRow({ colSpan, adId, citas, open }: { colSpan: number; adId: 
 }
 
 function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath, citasByAdId }: { ads: AdRow[]; badges: any; orderedAdsets: AdsetGroup[]; ga4SessionsByPath: Record<string, number>; citasByAdId: Record<string, any[]> }) {
-  const [openAdId, setOpenAdId] = useState<string | null>(null);
 
   // La barra vertical dentro de cada celda ("embudo visual" original) -
   // la altura es proporcional al maximo de esa columna especifica, no
@@ -999,7 +998,6 @@ function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath, citasByAd
                 const path = normalizePath(a.landing_url);
                 const ga4Value = path && path in ga4SessionsByPath ? ga4SessionsByPath[path] : null;
                 const citas = citasByAdId[a.level_id];
-                const isOpen = openAdId === a.level_id;
                 return (
                   <>
                     <tr key={a.level_id} className={isTopOverall ? 'best-row' : ''}>
@@ -1031,15 +1029,15 @@ function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath, citasByAd
                         const max = maxByEvent[ev.key];
                         return <BarCell key={ev.key} value={count} max={max} isBest={max > 0 && count === max} isWeak={count === 0} format={(v) => String(v)} />;
                       })}
-                      <td onClick={() => citas && citas.length > 0 && setOpenAdId(isOpen ? null : a.level_id)}>
+                      <td>
                         {citas && citas.length > 0 ? (
-                          <span className="citas-badge" style={{ cursor: 'pointer' }}>{citas.length} cita{citas.length !== 1 ? 's' : ''} <span className="chev">{isOpen ? '▴' : '▾'}</span></span>
+                          <span className="citas-badge">{citas.length} cita{citas.length !== 1 ? 's' : ''}</span>
                         ) : (
                           <span className="citas-badge zero">0 citas</span>
                         )}
                       </td>
                     </tr>
-                    <CitasPanelRow colSpan={colCount} adId={a.level_id} citas={citas} open={isOpen} />
+                    <CitasPanelRow colSpan={colCount} adId={a.level_id} citas={citas} open={Boolean(citas && citas.length > 0)} />
                   </>
                 );
               })}
