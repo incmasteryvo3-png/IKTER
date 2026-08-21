@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
 
   const since = req.nextUrl.searchParams.get('since');
   const until = req.nextUrl.searchParams.get('until');
+  const debug = req.nextUrl.searchParams.get('debug') === '1';
   if (!since || !until) {
     return NextResponse.json({ error: 'Faltan ?since=YYYY-MM-DD&until=YYYY-MM-DD en la URL' }, { status: 400 });
   }
@@ -38,8 +39,8 @@ export async function POST(req: NextRequest) {
     const result = await fetchGhlAppointments({
       token,
       locationId,
-      startTime: new Date(since).toISOString(),
-      endTime: new Date(until).toISOString(),
+      startTime: String(new Date(since).getTime()),
+      endTime: String(new Date(until).getTime()),
     });
     calendarDiagnostics = result.diagnostics;
     calendarsRaw = result.calendarsRaw;
@@ -92,7 +93,11 @@ export async function POST(req: NextRequest) {
     // cada uno (o el error de ese calendario en particular). Esto es lo
     // que reemplaza tener que ir a buscar en los logs de Vercel.
     calendars_found: calendarDiagnostics.length,
+    // Un solo numero resumen, para no tener que copiar el arreglo
+    // completo de diagnosticos cada vez que se prueba - si esto es 0,
+    // GHL no devolvio NINGUN evento en ningun calendario para el rango.
+    total_events_found: calendarDiagnostics.reduce((sum, d) => sum + (d.eventCount || 0), 0),
     calendar_diagnostics: calendarDiagnostics,
-    calendars_raw: calendarsRaw,
+    calendars_raw: debug ? calendarsRaw : undefined,
   });
 }
