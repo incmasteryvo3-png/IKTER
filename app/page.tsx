@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase';
 import dynamic from 'next/dynamic';
+import { useSavedAnalysis, forgetSaved, SavedHistory, fmtSavedDate } from '@/components/aiSaved';
 
 // Pestaña "Diagnóstico" (graficas diarias + IA por grafica). Se carga
 // aparte y solo en el navegador - no afecta en nada al Dashboard.
@@ -331,8 +332,12 @@ export default function Dashboard() {
     setGa4Loading(true);
     setGa4Error(null);
     try {
-      const res = await fetch(`/api/insights/ga4?since=${s}&until=${u}`);
+      // GA4 de la cuenta elegida (cada cuenta puede tener su propiedad).
+      const requested = accountRef.current;
+      const acc = requested ? `&account=${requested}` : '';
+      const res = await fetch(`/api/insights/ga4?since=${s}&until=${u}${acc}`);
       const json = await res.json();
+      if (requested !== accountRef.current) return;
       if (!res.ok) throw new Error(json.error || 'Error al consultar GA4.');
       setGa4Overview(json.overview || null);
       setGa4Channels(json.channels || []);
@@ -379,8 +384,8 @@ export default function Dashboard() {
         // sin lista de cuentas: el servidor usa la cuenta por defecto
       }
       loadInsights(since, until);
+      loadGa4(since, until);
     })();
-    loadGa4(since, until);
     loadCitas();
     supabaseBrowser
       .from('insight_snapshots')
@@ -423,6 +428,11 @@ export default function Dashboard() {
     setAds([]);
     setLoading(true);
     loadInsights(since, until);
+    setGa4Overview(null);
+    setGa4Channels([]);
+    setGa4Sources([]);
+    setGa4LandingPages([]);
+    loadGa4(since, until);
   }
   const accountName = accounts.find((a) => a.id === accountId)?.name || '';
 
@@ -655,7 +665,7 @@ export default function Dashboard() {
 
           <FunnelGroup items={selectedCampaigns} stages={PACKAGES[metricPackage].stages} />
 
-          <AiCardPair payload={{ cuenta: accountName || undefined, tipo: 'comparación de campañas', periodo: { since, until }, campañas: selectedCampaigns.map((s) => s.data) }} />
+          <AiCardPair account={accountId} period={{ since, until }} sectionKey={`${accountId}|campanas|${selIds.join('+')}`} sectionTitle="Comparación de campañas" payload={{ cuenta: accountName || undefined, tipo: 'comparación de campañas', periodo: { since, until }, campañas: selectedCampaigns.map((s) => s.data) }} />
 
           {selectedCampaigns.map((camp) => {
             const campAdsets: FunnelItem[] = adsets
@@ -681,7 +691,7 @@ export default function Dashboard() {
                     {campAdsets.map((adset) => (
                       <div key={adset.id} style={{ marginTop: 18 }}>
                         <div className="section-sub" style={{ fontWeight: 600, color: 'var(--carbon)' }}>Análisis — {adset.name}</div>
-                        <AiCardPair payload={{ cuenta: accountName || undefined, tipo: 'conjunto de anuncios', campaña: camp.name, periodo: { since, until }, conjunto: adset.data }} />
+                        <AiCardPair account={accountId} period={{ since, until }} sectionKey={`${accountId}|conjunto|${adset.id}`} sectionTitle={`Conjunto ${adset.name}`} payload={{ cuenta: accountName || undefined, tipo: 'conjunto de anuncios', campaña: camp.name, periodo: { since, until }, conjunto: adset.data }} />
                       </div>
                     ))}
                   </>
@@ -705,7 +715,7 @@ export default function Dashboard() {
                 <ResultsTable ads={filteredAds} badges={badges} orderedAdsets={orderedAdsets} ga4SessionsByPath={ga4SessionsByPath} citasByAdId={citasByAdId} />
               </div>
 
-              <AiCardPair payload={{ cuenta: accountName || undefined, tipo: 'tabla de creativos', periodo: { since, until }, anuncios: filteredAds }} />
+              <AiCardPair account={accountId} period={{ since, until }} sectionKey={`${accountId}|creativos|${selIds.join('+')}`} sectionTitle="Tabla de creativos" payload={{ cuenta: accountName || undefined, tipo: 'tabla de creativos', periodo: { since, until }, anuncios: filteredAds }} />
             </>
           )}
         </>
@@ -720,6 +730,8 @@ export default function Dashboard() {
         landingPages={ga4LandingPages}
         since={since}
         until={until}
+        accountId={accountId}
+        accountName={accountName}
       />
       </div>
     </div>
@@ -945,19 +957,32 @@ function AccountBox({ item }: { item: FunnelItem }) {
 // como "VISION" y "ATALAYA" en la interfaz). "provider" NO cambia -
 // sigue apuntando a /api/analyze/gemini y /api/analyze/claude, que son
 // los que de verdad llaman a cada IA - solo cambia el nombre visible.
-function AiCardPair({ payload }: { payload: unknown }) {
+type AiSaveProps = { sectionKey?: string; period?: { since: string; until: string }; account?: string; sectionTitle?: string };
+
+function AiCardPair({ payload, ...save }: { payload: unknown } & AiSaveProps) {
   return (
     <div className="ai-cards-row">
-      <AiCard provider="gemini" title="VISION" payload={payload} />
-      <AiCard provider="claude" title="ATALAYA" payload={payload} />
+      <AiCard provider="gemini" title="VISION" payload={payload} {...save} />
+      <AiCard provider="claude" title="ATALAYA" payload={payload} {...save} />
     </div>
   );
 }
 
-function AiCard({ provider, title, payload }: { provider: 'gemini' | 'claude'; title: string; payload: unknown }) {
+// Si la seccion ya tiene un analisis guardado con estos MISMOS datos, se
+// muestra directo (sin volver a pagarle a la IA). Debajo, el historial de
+// analisis anteriores de la misma seccion para comparar.
+function AiCard({ provider, title, payload, sectionKey, period, account, sectionTitle }: { provider: 'gemini' | 'claude'; title: string; payload: unknown } & AiSaveProps) {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [fromSaved, setFromSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const { exact, history, hash } = useSavedAnalysis(provider, sectionKey, payload);
+
+  useEffect(() => {
+    if (exact && !summary) { setSummary(exact.summary_md); setSavedAt(exact.generated_at); setFromSaved(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exact]);
 
   async function generate() {
     setLoading(true);
@@ -966,11 +991,14 @@ function AiCard({ provider, title, payload }: { provider: 'gemini' | 'claude'; t
       const res = await fetch(`/api/analyze/${provider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
+        body: JSON.stringify({ data: payload, section_key: sectionKey, data_hash: hash || undefined, period, account, title: sectionTitle }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al generar el análisis');
       setSummary(json.summary_md);
+      setSavedAt(json.saved_at || null);
+      setFromSaved(false);
+      if (sectionKey) forgetSaved(sectionKey);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -984,12 +1012,16 @@ function AiCard({ provider, title, payload }: { provider: 'gemini' | 'claude'; t
         <div className={`ai-card-title ${provider}`}>{provider === 'gemini' ? '✨' : '◆'} {title}</div>
         <button className="btn small" onClick={generate} disabled={loading}>{loading ? 'Analizando…' : summary ? 'Actualizar' : 'Generar análisis'}</button>
       </div>
+      {savedAt && summary && (
+        <div className="ai-saved-note">{fromSaved ? `Guardado el ${fmtSavedDate(savedAt)} · mismos datos, no se volvió a cobrar` : `Guardado el ${fmtSavedDate(savedAt)}`}</div>
+      )}
       {err && <div className="error-banner" style={{ marginBottom: 0 }}>{err}</div>}
       {summary ? (
         <div className="ai-card-body" dangerouslySetInnerHTML={{ __html: mdToHtml(summary) }} />
       ) : !loading && !err ? (
         <div className="ai-card-empty">Presiona "Generar análisis" para que {title} analice estos datos.</div>
       ) : null}
+      <SavedHistory rows={history} render={mdToHtml} className="ai-history" />
     </div>
   );
 }
@@ -1166,8 +1198,10 @@ function fmtSeconds(s: number) {
 }
 
 function Ga4Section({
-  loading, error, overview, channels, sources, landingPages, since, until,
+  loading, error, overview, channels, sources, landingPages, since, until, accountId, accountName,
 }: {
+  accountId: string;
+  accountName: string;
   loading: boolean;
   error: string | null;
   overview: Ga4Overview | null;
@@ -1298,7 +1332,12 @@ function Ga4Section({
           )}
 
           <AiCardPair
+            account={accountId}
+            period={{ since, until }}
+            sectionKey={`${accountId}|ga4`}
+            sectionTitle="Sitio web (GA4)"
             payload={{
+              cuenta: accountName || undefined,
               tipo: 'desempeño del sitio web (GA4)',
               periodo: { since, until },
               resumen: overview,
@@ -1316,6 +1355,7 @@ function Ga4Section({
 function mdToHtml(md: string) {
   return md
     .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/^- (.*)$/gm, '&nbsp;&nbsp;• $1<br/>')
     .replace(/\n\n/g, '<br/>');
 }

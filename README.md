@@ -1,5 +1,49 @@
 # Mastery Dashboard — Meta Ads en tiempo real + análisis con Gemini y Claude
 
+## Novedad v0.6 — seguridad, historial liviano, análisis guardados, correo semanal y GA4 por cuenta
+
+### Qué cambió
+1. **Rutas `/api` protegidas.** Sin sesión iniciada responden 401. Siguen funcionando sin sesión solo: las llamadas con `Authorization: Bearer <CRON_SECRET>` (cron de Vercel, workflows de GitHub, backfill de GHL y diagnósticos con Postman) y el webhook de GHL (`/api/webhooks/*`, que valida su propia clave). Se borró `/api/debug/env` (mostraba parte de la clave de Claude). `/api/debug/adset` se dejó, ahora con sesión.
+2. **Next.js 14.2.5 → 14.2.35** (corrige la vulnerabilidad que avisaba npm).
+3. **Una sola foto por día** en `insight_snapshots` y en las tablas de GA4: cada sincronización reemplaza la foto de hoy (hora de Colombia) y borra lo que tenga más de 90 días (`SNAPSHOT_RETENTION_DAYS` para cambiarlo). Nota: los workflows de GitHub están en modo manual, así que la sincronización la disparan "Actualizar ahora" y el workflow a mano.
+4. **Análisis de IA guardados** (tabla `ai_summaries`). Cada análisis queda guardado por sección (cuenta + qué gráfica/tabla). Si vuelves a la misma vista con los mismos datos, se muestra el guardado sin volver a pagarle a la IA ("mismos datos, no se volvió a cobrar"), y debajo de cada tarjeta aparece **"Análisis anteriores de esta sección"** para comparar.
+5. **Resumen semanal por correo** a todos los usuarios registrados en Supabase, **los lunes a las 8:00 a. m. (Colombia)**: por cada cuenta, totales de la semana pasada contra la anterior, anuncios que conviene escalar, que subieron su costo por resultado o dejaron de convertir, con señales de fatiga, y que gastan sin resultados, más un párrafo de Gemini en tono de profesor.
+6. **GA4 por cuenta.** Cada cuenta publicitaria puede tener su propia propiedad de GA4; la sección GA4 del Dashboard cambia con el selector de cuenta.
+
+### Pasos para desplegar v0.6 (en este orden)
+
+**A. Supabase → SQL Editor → New query** → pega y corre **`sql/migracion_v06.sql`** (una sola vez; se puede repetir sin problema). Agrega las columnas para guardar los análisis y limpia el historial repetido que ya existe.
+
+**B. Resend (para el correo semanal)**
+1. Crea una cuenta gratis en [resend.com](https://resend.com) (3.000 correos/mes).
+2. **Domains → Add Domain** → tu dominio (ej. `incmastery.com`) → agrega en tu proveedor de DNS los registros que te muestra (TXT/MX/DKIM) → espera a que diga **Verified**. Sin dominio verificado, Resend solo deja enviar a tu propio correo de registro.
+3. **API Keys → Create API Key** (permiso "Sending access") → cópiala.
+
+**C. Vercel → Settings → Environment Variables** (Production) → agrega:
+
+| Variable | Valor | ¿Obligatoria? |
+|---|---|---|
+| `RESEND_API_KEY` | la clave de Resend (`re_...`) | Sí, para el correo |
+| `EMAIL_FROM` | `IKTER <reportes@incmastery.com>` (un correo de tu dominio verificado) | Sí, para el correo |
+| `SITE_URL` | `https://tu-ikter.vercel.app` (para el botón "Abrir IKTER" del correo) | Recomendada |
+| `GA4_PROPERTY_IDS` | `act_1167371012372393:NUMERO_PROPIEDAD_AESTHETICS` (solo si Aesthetics tiene otro sitio) | Opcional |
+| `WEEKLY_REPORT_EXCLUDE` | correos que NO deben recibir el resumen, separados por coma | Opcional |
+| `WEEKLY_REPORT_TO` | si la defines, el resumen va SOLO a estos correos (en vez de a todos los usuarios) | Opcional |
+| `WEEKLY_REPORT_AI` | `off` para mandar el correo sin el párrafo de Gemini | Opcional |
+| `SNAPSHOT_RETENTION_DAYS` | días de historial a conservar (por defecto 90) | Opcional |
+
+`CRON_SECRET` **debe existir** en Vercel (ya la tienes): Vercel la usa para firmar la llamada del lunes.
+
+**D. Push a GitHub** → Vercel despliega solo. El horario del correo está en `vercel.json` (`0 13 * * 1` = lunes 13:00 UTC = 8:00 a. m. Colombia); después del deploy lo ves en **Vercel → Settings → Cron Jobs** (funciona en el plan gratis; Vercel puede dispararlo dentro de esa hora, no al minuto exacto).
+
+**E. Probar el correo sin esperar al lunes** (con sesión iniciada en IKTER, en el mismo navegador):
+- `https://tu-ikter.vercel.app/api/weekly-report` → vista previa del correo en el navegador (no envía nada).
+- `https://tu-ikter.vercel.app/api/weekly-report?enviar=yo` → te lo envía **solo a ti**. Un usuario con sesión nunca puede disparar el envío a todos; eso solo lo hace el cron.
+
+**GA4 de Aesthetics** (solo si tiene su propio sitio): en GA4 → Admin → Acceso a la propiedad, agrega como **Lector** el mismo correo de la cuenta de servicio (`GA4_SERVICE_ACCOUNT_EMAIL`), copia el **ID de la propiedad** (número) y ponlo en `GA4_PROPERTY_IDS`. Las cuentas que no estén en esa lista siguen usando `GA4_PROPERTY_ID`.
+
+**Si algo llama a la API desde fuera** (Postman, scripts): ahora necesita `Authorization: Bearer <CRON_SECRET>`; los endpoints de backfill y diagnósticos ya lo pedían.
+
 ## Novedad v0.5 — selector de cuenta publicitaria (Mastery TikTok / Mastery Aesthetics)
 
 Arriba, debajo de los botones del header, aparece **"Cuenta publicitaria"** (solo si hay 2 o más cuentas configuradas). Al cambiar de cuenta se recargan las campañas con el mismo rango de fechas, se limpian las campañas elegidas (eran de la otra cuenta) y la pestaña Diagnóstico sigue a la cuenta y a las campañas elegidas. El navegador recuerda la última cuenta usada. Las IAs reciben el nombre de la cuenta como contexto.
@@ -18,7 +62,7 @@ Value: act_111111111:Mastery TikTok,act_222222222:Mastery Aesthetics
 - La primera cuenta de la lista es la que se abre por defecto.
 - `META_AD_ACCOUNT_ID` puedes dejarla: solo se usa si `META_AD_ACCOUNTS` no existe.
 
-**3. Supabase — nada.** La tabla `ad_accounts` ya admite varias cuentas: el cron de cada 30 min (y "Actualizar ahora") sincroniza ahora **todas** las cuentas de la lista, cada una en su fila, en paralelo; si una falla, la otra se guarda igual. No hay SQL que correr.
+**3. Supabase — nada.** La tabla `ad_accounts` ya admite varias cuentas: "Actualizar ahora" (y el workflow manual de GitHub) sincroniza **todas** las cuentas de la lista, cada una en su fila, en paralelo; si una falla, la otra se guarda igual. No hay SQL que correr.
 
 **4. GitHub Actions — nada.** Los mismos secretos `SITE_URL` y `CRON_SECRET`.
 
@@ -95,7 +139,7 @@ Esto es lo más importante de leer antes de usarlo en serio:
 
 ## Cómo funciona, de punta a punta
 
-El dashboard consulta a Meta **en vivo** (`/api/insights`) para el rango de fechas exacto que elijas — no depende de datos guardados de antemano. Por separado, un cron en GitHub Actions sincroniza cada 30 minutos hacia Supabase (`/api/sync-meta`), guardando historial para más adelante.
+El dashboard consulta a Meta **en vivo** (`/api/insights`) para el rango de fechas exacto que elijas — no depende de datos guardados de antemano. Por separado, "Actualizar ahora" (o el workflow manual de GitHub Actions) sincroniza hacia Supabase (`/api/sync-meta`), guardando una foto por día como historial.
 
 Cada tarjeta de IA (VISION o ATALAYA — Gemini y Claude por debajo) analiza **exactamente los datos que esa sección está mostrando** — la comparación de campañas, un conjunto de anuncios específico, o la tabla de creativos — porque se le manda ese JSON directo desde el navegador, no se recalcula en el servidor.
 
@@ -120,7 +164,7 @@ El resto de variables (Supabase, Meta, Gemini, `CRON_SECRET`) son las mismas de 
 2. Llena `.env.local` con las variables de `.env.example` + las 3 de GA4 de arriba.
 3. `npm install && npm run dev` para probar local.
 4. Sube a GitHub, conecta con Vercel, agrega las variables de entorno, despliega.
-5. En GitHub → Settings → Secrets → Actions, confirma que `CRON_SECRET` y `SITE_URL` sigan configurados (ahora sincronizan Meta **y** GA4 cada 30 min, cada uno con su propio workflow).
+5. En GitHub → Settings → Secrets → Actions, confirma que `CRON_SECRET` y `SITE_URL` sigan configurados (los workflows de Meta y GA4 están en modo manual; se disparan desde GitHub → Actions).
 
 ### Configurar el acceso a GA4
 
@@ -192,6 +236,13 @@ app/api/analyze/claude/        → analisis con Claude ("ATALAYA"), sin estado
 app/api/sync-meta/             → cron historico hacia Supabase (Meta)
 app/api/sync-ga4/                → cron historico hacia Supabase (GA4)
 app/api/refresh/                → boton "Actualizar ahora" (sincroniza Meta y GA4 en paralelo; las citas de GHL se leen de Supabase, no se re-consultan)
+app/api/weekly-report/           → resumen semanal por correo (cron lunes 8am, vista previa, prueba a ti)
+app/api/analyze/saved/           → análisis de IA guardados (historial por sección)
+lib/weeklyReport.ts               → cálculo + HTML + envío (Resend) del resumen semanal
+lib/aiStore.ts                   → guardar/leer análisis en ai_summaries
+lib/retention.ts                 → una foto por día + limpieza automática del historial
+lib/authServer.ts                → usuario con sesión dentro de las rutas /api
+sql/migracion_v06.sql            → migración v0.6 (correr una vez)
 app/api/accounts/                → lista de cuentas para el selector (de META_AD_ACCOUNTS)
 lib/accounts.ts                  → lee META_AD_ACCOUNTS y valida la cuenta pedida
 app/api/insights/daily/          → serie DIARIA en vivo desde Meta para la pestaña Diagnóstico

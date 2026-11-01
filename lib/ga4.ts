@@ -29,8 +29,10 @@ function getClient(): JWT {
   return cachedClient;
 }
 
-async function runReport(body: Record<string, unknown>) {
-  const propertyId = process.env.GA4_PROPERTY_ID;
+// propertyIdArg: propiedad de GA4 de la cuenta elegida (ver
+// getGa4PropertyId en lib/accounts.ts). Si no viene, usa GA4_PROPERTY_ID.
+async function runReport(propertyIdArg: string | undefined, body: Record<string, unknown>) {
+  const propertyId = propertyIdArg || process.env.GA4_PROPERTY_ID;
   if (!propertyId) throw new Error('Falta GA4_PROPERTY_ID en el servidor.');
 
   const client = getClient();
@@ -86,8 +88,8 @@ export type Ga4Overview = {
 };
 
 // KPIs generales del sitio para el rango de fechas exacto.
-export async function fetchGa4Overview(params: { since: string; until: string }): Promise<Ga4Overview> {
-  const report = await runReport({
+export async function fetchGa4Overview(params: { since: string; until: string; propertyId?: string }): Promise<Ga4Overview> {
+  const report = await runReport(params.propertyId, {
     dateRanges: [{ startDate: params.since, endDate: params.until }],
     metrics: OVERVIEW_METRICS.map((name) => ({ name })),
   });
@@ -118,8 +120,8 @@ export type Ga4Channel = {
 // Referral, etc.) - esto es lo que permite comparar el trafico que
 // viene de Meta contra el resto de canales, sin necesitar la API de
 // Meta para nada: GA4 ya lo clasifica solo usando UTMs/click IDs.
-export async function fetchGa4Channels(params: { since: string; until: string }): Promise<Ga4Channel[]> {
-  const report = await runReport({
+export async function fetchGa4Channels(params: { since: string; until: string; propertyId?: string }): Promise<Ga4Channel[]> {
+  const report = await runReport(params.propertyId, {
     dateRanges: [{ startDate: params.since, endDate: params.until }],
     dimensions: [{ name: 'sessionDefaultChannelGroup' }],
     metrics: [{ name: 'sessions' }, { name: 'conversions' }, { name: 'engagementRate' }, { name: 'newUsers' }],
@@ -146,8 +148,8 @@ export type Ga4Source = {
 // Desglose mas fino por origen/medio + nombre de campaña - sirve para
 // ver, dentro de "Paid Social", exactamente que campaña de Meta trajo
 // el trafico (siempre que los anuncios lleven UTMs, ver nota en README).
-export async function fetchGa4Sources(params: { since: string; until: string }): Promise<Ga4Source[]> {
-  const report = await runReport({
+export async function fetchGa4Sources(params: { since: string; until: string; propertyId?: string }): Promise<Ga4Source[]> {
+  const report = await runReport(params.propertyId, {
     dateRanges: [{ startDate: params.since, endDate: params.until }],
     dimensions: [{ name: 'sessionSourceMedium' }, { name: 'sessionCampaignName' }],
     metrics: [{ name: 'sessions' }, { name: 'conversions' }, { name: 'engagementRate' }],
@@ -174,8 +176,8 @@ export type Ga4LandingPage = {
 // Paginas de destino con mas trafico - util para ver cuales landings
 // (muchas veces las mismas que reciben trafico pago de Meta) convierten
 // mejor o peor.
-export async function fetchGa4LandingPages(params: { since: string; until: string }): Promise<Ga4LandingPage[]> {
-  const report = await runReport({
+export async function fetchGa4LandingPages(params: { since: string; until: string; propertyId?: string }): Promise<Ga4LandingPage[]> {
+  const report = await runReport(params.propertyId, {
     dateRanges: [{ startDate: params.since, endDate: params.until }],
     dimensions: [{ name: 'landingPage' }],
     metrics: [{ name: 'sessions' }, { name: 'conversions' }, { name: 'bounceRate' }, { name: 'averageSessionDuration' }],
@@ -193,7 +195,7 @@ export async function fetchGa4LandingPages(params: { since: string; until: strin
 
 // Junta los 4 reportes en una sola llamada, igual que /api/insights
 // hace con Meta (campaign+adset+ad en paralelo).
-export async function fetchGa4Insights(params: { since: string; until: string }) {
+export async function fetchGa4Insights(params: { since: string; until: string; propertyId?: string }) {
   const [overview, channels, sources, landingPages] = await Promise.all([
     fetchGa4Overview(params),
     fetchGa4Channels(params),

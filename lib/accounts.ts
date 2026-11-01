@@ -45,3 +45,35 @@ export function resolveAdAccount(requested: string | null | undefined): AdAccoun
   }
   return list[0];
 }
+
+// ------------------------------------------------------------
+// GA4 por cuenta (opcional). Si cada cuenta publicitaria lleva trafico
+// a un sitio distinto, cada una puede tener su propiedad de GA4:
+//   GA4_PROPERTY_IDS=act_111111111:123456789,act_222222222:987654321
+// Las cuentas que no esten en la lista usan GA4_PROPERTY_ID (la de
+// siempre). Si no existe GA4_PROPERTY_IDS, todas usan GA4_PROPERTY_ID.
+// La misma cuenta de servicio de Google debe tener acceso de Lector a
+// cada propiedad.
+// ------------------------------------------------------------
+function ga4Map(): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const part of (process.env.GA4_PROPERTY_IDS || '').split(',')) {
+    const [acc, prop] = part.split(':').map((x) => (x || '').trim());
+    if (!acc || !prop) continue;
+    map[acc.startsWith('act_') ? acc : `act_${acc}`] = prop;
+  }
+  return map;
+}
+
+export function getGa4PropertyId(accountId: string | null | undefined): string | null {
+  const map = ga4Map();
+  if (accountId && map[accountId]) return map[accountId];
+  return process.env.GA4_PROPERTY_ID || null;
+}
+
+/** Todas las propiedades distintas a sincronizar. */
+export function getAllGa4PropertyIds(): string[] {
+  const set = new Set<string>(Object.values(ga4Map()));
+  if (process.env.GA4_PROPERTY_ID) set.add(process.env.GA4_PROPERTY_ID);
+  return Array.from(set);
+}

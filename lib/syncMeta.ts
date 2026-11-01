@@ -1,6 +1,7 @@
 import { fetchMetaInsights } from '@/lib/meta';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getAdAccounts, type AdAccount } from '@/lib/accounts';
+import { todayStartIso, retentionCutoffIso } from '@/lib/retention';
 
 // Sincroniza el historial de TODAS las cuentas configuradas en
 // META_AD_ACCOUNTS (o la unica de META_AD_ACCOUNT_ID). Cada cuenta va
@@ -42,6 +43,10 @@ async function syncAccount(acc: AdAccount) {
 
   const levels: Array<'campaign' | 'adset' | 'ad'> = ['campaign', 'adset', 'ad'];
   let totalRows = 0;
+  // Marca de tiempo de ESTA sincronizacion: todas las filas nuevas la
+  // llevan, y asi se pueden borrar las fotos anteriores de hoy sin tocar
+  // las que se acaban de guardar.
+  const runAt = new Date().toISOString();
 
   for (const level of levels) {
     const rows = await fetchMetaInsights({ adAccountId, token, level, since, until });
@@ -68,6 +73,7 @@ async function syncAccount(acc: AdAccount) {
       ctr: r.ctr,
       cpc: r.cpc,
       raw: r.raw,
+      fetched_at: runAt,
     }));
 
     const { error: insErr } = await db.from('insight_snapshots').insert(toInsert);
@@ -75,5 +81,25 @@ async function syncAccount(acc: AdAccount) {
     totalRows += toInsert.length;
   }
 
-  return { account_id: account.id, rows_saved: totalRows, range: { since, until } };
+  // Una sola foto por dia: se borran las de hoy anteriores a esta, y las
+  // que pasaron el periodo de retencion. Si algo falla aqui, la foto nueva
+  // ya quedo guardada, asi que no se pierde informacion.
+  let cleaned = 0;
+  if (totalRows > 0) {
+    const { count: c1, error: e1 } = await db.from('insight_snapshots')
+      .delete({ count: 'exact' })
+      .eq('ad_account_id', account.id)
+      .gte('fetched_at', todayStartIso())
+      .lt('fetched_at', runAt);
+    if (e1) console.error('Limpieza (hoy) insight_snapshots:', e1.message);
+    cleaned += c1 || 0;
+  }
+  const { count: c2, error: e2 } = await db.from('insight_snapshots')
+    .delete({ count: 'exact' })
+    .eq('ad_account_id', account.id)
+    .lt('fetched_at', retentionCutoffIso());
+  if (e2) console.error('Limpieza (retencion) insight_snapshots:', e2.message);
+  cleaned += c2 || 0;
+
+  return { account_id: account.id, rows_saved: totalRows, rows_cleaned: cleaned, range: { since, until } };
 }

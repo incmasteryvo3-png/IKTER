@@ -12,6 +12,7 @@
 // ============================================================
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useSavedAnalysis, forgetSaved, SavedHistory, fmtSavedDate } from '@/components/aiSaved';
 
 type Level = 'ad' | 'adset' | 'campaign';
 
@@ -263,26 +264,38 @@ No inventes números. Si un dato falta o es insuficiente para concluir, dilo.
 `.trim();
 }
 
-function DiagAiPair({ kind, payload }: { kind: string; payload: unknown }) {
+// sectionId: que grafica es (sin la cuenta); se le antepone la cuenta para
+// guardar/buscar el analisis. period: rango consultado.
+type DiagSave = { sectionId: string; period: { since: string; until: string }; sectionTitle: string };
+
+function DiagAiPair({ kind, payload, save }: { kind: string; payload: unknown; save: DiagSave }) {
   return (
     <div className="dg-ai-row">
-      <DiagAiCard provider="gemini" kind={kind} payload={payload} />
-      <DiagAiCard provider="claude" kind={kind} payload={payload} />
+      <DiagAiCard provider="gemini" kind={kind} payload={payload} save={save} />
+      <DiagAiCard provider="claude" kind={kind} payload={payload} save={save} />
     </div>
   );
 }
 
-// Cuenta publicitaria activa, para que las IAs sepan de qué cuenta son los
-// datos (se actualiza en cada render del panel).
-// Nombre de la cuenta publicitaria activa, para darle contexto a las IAs.
-const AccountNameCtx = createContext('');
+// Cuenta publicitaria activa: el nombre da contexto a las IAs y el id
+// separa los analisis guardados por cuenta.
+const AccountNameCtx = createContext<{ id: string; name: string }>({ id: '', name: '' });
 
-function DiagAiCard({ provider, kind, payload }: { provider: 'gemini' | 'claude'; kind: string; payload: unknown }) {
-  const accountName = useContext(AccountNameCtx);
+function DiagAiCard({ provider, kind, payload, save }: { provider: 'gemini' | 'claude'; kind: string; payload: unknown; save: DiagSave }) {
+  const { id: accountId, name: accountName } = useContext(AccountNameCtx);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [fromSaved, setFromSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const title = AI_NAMES[provider];
+  const sectionKey = `${accountId}|${save.sectionId}`;
+  const { exact, history, hash } = useSavedAnalysis(provider, sectionKey, payload);
+
+  useEffect(() => {
+    if (exact && !summary) { setSummary(exact.summary_md); setSavedAt(exact.generated_at); setFromSaved(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exact]);
 
   async function generate() {
     setLoading(true);
@@ -291,11 +304,18 @@ function DiagAiCard({ provider, kind, payload }: { provider: 'gemini' | 'claude'
       const res = await fetch(`/api/analyze/${provider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: payload, prompt: buildChartPrompt(accountName ? `${kind} — cuenta publicitaria "${accountName}"` : kind, payload) }),
+        body: JSON.stringify({
+          data: payload,
+          prompt: buildChartPrompt(accountName ? `${kind} — cuenta publicitaria "${accountName}"` : kind, payload),
+          section_key: sectionKey, data_hash: hash || undefined, period: save.period, account: accountId || undefined, title: save.sectionTitle,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al generar el análisis');
       setSummary(json.summary_md);
+      setSavedAt(json.saved_at || null);
+      setFromSaved(false);
+      forgetSaved(sectionKey);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -311,6 +331,9 @@ function DiagAiCard({ provider, kind, payload }: { provider: 'gemini' | 'claude'
           {loading ? 'Analizando…' : summary ? 'Actualizar' : 'Analizar gráfica'}
         </button>
       </div>
+      {savedAt && summary && (
+        <div className="dg-saved-note">{fromSaved ? `Guardado el ${fmtSavedDate(savedAt)} · mismos datos, no se volvió a cobrar` : `Guardado el ${fmtSavedDate(savedAt)}`}</div>
+      )}
       {err && <div className="dg-ai-error">{err}</div>}
       {summary ? (
         <div className="dg-ai-body" dangerouslySetInnerHTML={{ __html: mdToHtml(summary) }} />
@@ -319,6 +342,7 @@ function DiagAiCard({ provider, kind, payload }: { provider: 'gemini' | 'claude'
       ) : loading ? (
         <div className="dg-ai-empty">Leyendo la gráfica…</div>
       ) : null}
+      <SavedHistory rows={history} render={mdToHtml} className="dg-history" />
     </div>
   );
 }
@@ -422,7 +446,11 @@ function EntityCard({ e, dates, since, until }: { e: Entity; dates: string[]; si
       </div>
       <div className="dg-chart-wrap"><canvas ref={canvasRef} role="img" aria-label={`Métricas diarias de ${e.name}`} /></div>
       <div className="dg-gap-note"><span className="dg-gap-swatch" />Día sin ninguna fila de datos en Meta (posible pausa o corte de entrega)</div>
-      <DiagAiPair kind={`métricas diarias de "${e.name}" (${LEVEL_LABELS[e.level].tag}), indexadas 0-100 para compararlas en el mismo eje`} payload={payload} />
+      <DiagAiPair
+        kind={`métricas diarias de "${e.name}" (${LEVEL_LABELS[e.level].tag}), indexadas 0-100 para compararlas en el mismo eje`}
+        payload={payload}
+        save={{ sectionId: `diag-${e.level}|${e.id}`, period: { since, until }, sectionTitle: `Diagnóstico: ${e.name}` }}
+      />
     </div>
   );
 }
@@ -488,6 +516,7 @@ function RetentionCard({ entities, colorOf, since, until }: { entities: Entity[]
       <div className="dg-chart-wrap" style={{ height: 280 }}><canvas ref={canvasRef} role="img" aria-label="Curva de retención de video por entidad" /></div>
       <DiagAiPair
         kind="curva de retención de video (25/50/75/100%) comparando varios creativos entre sí"
+        save={{ sectionId: `diag-retencion|${withVideo.map((e) => e.id).join('+')}`, period: { since, until }, sectionTitle: 'Diagnóstico: retención de video' }}
         payload={{ tipo: 'retención de video', periodo: { since, until }, creativos: withVideo.map((e) => ({ nombre: e.label || e.name, conjunto: e.adset_name, campaña: e.campaign_name, ...e.video, gasto: e.totales.gasto, resultados: e.totales.resultados })) }}
       />
     </section>
@@ -558,6 +587,7 @@ function TimelineCard({ entities, dates, colorOf, since, until }: { entities: En
 
       <DiagAiPair
         kind="línea de tiempo de entrega (cuándo estuvo activa cada entidad) + frecuencia diaria de todas, comparadas entre sí en el mismo calendario"
+        save={{ sectionId: `diag-linea|${entities.map((e) => e.id).join('+')}`, period: { since, until }, sectionTitle: 'Diagnóstico: línea de tiempo y frecuencia' }}
         payload={{
           tipo: 'línea de tiempo y frecuencia comparada',
           periodo: { since, until },
@@ -659,7 +689,7 @@ export default function DiagnosticoPanel({
   const stale = loaded && (loaded.since !== since || loaded.until !== until);
 
   return (
-    <AccountNameCtx.Provider value={accountName}>
+    <AccountNameCtx.Provider value={{ id: accountId, name: accountName }}>
     <div className="dg-root">
       <header className="dg-header">
         <p className="dg-brand">{PANEL_BRAND}{accountName ? ` · ${accountName}` : ''}</p>
