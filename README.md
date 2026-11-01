@@ -1,5 +1,39 @@
 # Mastery Dashboard — Meta Ads en tiempo real + análisis con Gemini y Claude
 
+## Novedad v0.3 — pestaña "Diagnóstico" (gráficas diarias + IA por gráfica)
+
+Arriba, debajo de los botones del header, ahora hay dos pestañas: **Dashboard** (todo lo que ya existía, sin ningún cambio) y **Diagnóstico** (nuevo).
+
+**Qué muestra Diagnóstico** — el mismo visual del "Panel de diagnóstico de anuncios", pero en vivo desde Meta, y **con los mismos parámetros del Dashboard**: solo los **anuncios de las 1 a 3 campañas que elegiste en el Dashboard**, en el **mismo rango de fechas**. Las campañas se eligen solo en el Dashboard; Diagnóstico se actualiza solo cuando cambias esa selección (y las fechas son las mismas en ambas pestañas; si las cambias, presiona "Consultar").
+
+- Una tarjeta por anuncio, agrupadas por campaña seleccionada, con sus 9 métricas **día por día**, indexadas 0-100 en el mismo eje para leerlas unas contra otras. El tooltip muestra el valor real. Costo por resultado brilla más (mirar primero), luego CTR (eficiencia), luego contexto.
+- Cada gráfica se recorta a la ventana real en que esa entidad tuvo entrega; los días sin ninguna fila de Meta dentro de esa ventana se marcan con una franja (posible pausa).
+- Retención de video (tabla + curva 25/50/75/100%), línea de tiempo de cuándo estuvo activo cada uno y frecuencia alineada en el calendario.
+- **Debajo de cada gráfica**, un par VISION (Gemini) + ATALAYA (Claude) con botón "Analizar gráfica". Usan un prompt propio para leer relaciones entre métricas (ej. CPM sube + CTR baja = fatiga), no el prompt general del Dashboard. Igual que antes, no se disparan solos.
+- **Modo profesor**: arriba hay un glosario con qué indica cada métrica y cómo leerla, y una guía de combinaciones típicas (ej. CPM sube + CTR baja = fatiga del creativo). VISION y ATALAYA reciben ese mismo glosario, explican en lenguaje simple qué mide cada métrica y por qué una combinación indica lo que dicen, y cierran con "Lo que te enseña esta gráfica". Los textos están en `METRICS` y `COMBOS` al inicio de `components/DiagnosticoPanel.tsx`.
+- Si un mismo nombre de anuncio se repite en varios conjuntos (el caso "daniela"), sale un aviso y cada tarjeta muestra su conjunto — con la API cada anuncio ya viene separado por su ID real, así que no se mezclan.
+
+**Para desplegar: solo `git push`.**
+- **No hay que correr ningún SQL.** Diagnóstico consulta a Meta en vivo (igual que el Dashboard) y no guarda nada en Supabase; las tablas actuales no cambian.
+- **No hay variables de entorno nuevas.** Usa las mismas `META_SYSTEM_USER_TOKEN`, `META_AD_ACCOUNT_ID`, `GEMINI_API_KEY` y `ANTHROPIC_API_KEY`.
+- Hay **una dependencia nueva** (`chart.js`) en `package.json`; Vercel la instala sola al desplegar. En local: `npm install`.
+
+**Límites a saber:**
+- Rango máximo de 93 días por consulta en Diagnóstico (es serie diaria; más días = más filas y Vercel corta a los 60 s).
+- La retención de video es el agregado del período (Meta no la reporta de forma confiable día por día).
+- Cada "Analizar gráfica" es una llamada a la API (con búsqueda web, como el resto). Con muchos anuncios, analiza solo los que te interesen.
+
+**Archivos nuevos / tocados en esta versión:**
+```
+components/DiagnosticoPanel.tsx   → NUEVO: toda la pestaña Diagnóstico (gráficas + tarjetas de IA)
+lib/metaDaily.ts                  → NUEVO: consulta diaria a Meta (time_increment=1) + retención de video
+app/api/insights/daily/route.ts   → NUEVO: GET /api/insights/daily?since=&until=&level=ad&campaign_ids=ID1,ID2 (filtra en Meta por las campañas elegidas)
+app/page.tsx                      → solo se agregaron las 2 pestañas y el envoltorio para mostrar/ocultar; el Dashboard no cambió
+app/globals.css                   → solo se AGREGARON estilos al final (prefijo .dg- y .view-tabs)
+lib/meta.ts                       → solo se agregó "export" a extractResults (para leer resultados igual que el Dashboard)
+package.json                      → + chart.js
+```
+
 ## Login (nuevo)
 
 El dashboard ahora exige iniciar sesión — nadie puede entrar sin cuenta. No hay pantalla de registro a propósito (es un equipo controlado, no un producto público). Para crear el primer usuario:
@@ -134,7 +168,9 @@ app/api/analyze/claude/        → analisis con Claude ("ATALAYA"), sin estado
 app/api/sync-meta/             → cron historico hacia Supabase (Meta)
 app/api/sync-ga4/                → cron historico hacia Supabase (GA4)
 app/api/refresh/                → boton "Actualizar ahora" (sincroniza Meta y GA4 en paralelo; las citas de GHL se leen de Supabase, no se re-consultan)
-app/page.tsx                    → el dashboard: Meta (campañas -> conjuntos de anuncios -> creativos) primero, GA4 (sitio web) al final, cada seccion con sus tarjetas de IA
+app/api/insights/daily/          → serie DIARIA en vivo desde Meta para la pestaña Diagnóstico
+components/DiagnosticoPanel.tsx  → pestaña Diagnóstico (graficas + IA por grafica)
+app/page.tsx                    → el dashboard (con las pestañas Dashboard | Diagnóstico): Meta (campañas -> conjuntos de anuncios -> creativos) primero, GA4 (sitio web) al final, cada seccion con sus tarjetas de IA
 app/globals.css                  → estilos (tema Mastery, incluye el modo nocturno)
 
 ../ga4-meta-bridge/            → (fuera de este repo) replica eventos de conversion de Meta hacia GA4

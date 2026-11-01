@@ -3,6 +3,11 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase';
+import dynamic from 'next/dynamic';
+
+// Pestaña "Diagnóstico" (graficas diarias + IA por grafica). Se carga
+// aparte y solo en el navegador - no afecta en nada al Dashboard.
+const DiagnosticoPanel = dynamic(() => import('@/components/DiagnosticoPanel'), { ssr: false });
 
 type InsightRow = {
   level: 'campaign' | 'adset' | 'ad';
@@ -248,6 +253,22 @@ export default function Dashboard() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+  // Vista activa: 'dashboard' (todo lo de siempre) o 'diag' (Diagnóstico).
+  // Se recuerda en la URL (#diagnostico) para que un refresh no te saque.
+  const [view, setView] = useState<'dashboard' | 'diag'>('dashboard');
+  const [diagOpened, setDiagOpened] = useState(false);
+  useEffect(() => {
+    if (window.location.hash === '#diagnostico') { setView('diag'); setDiagOpened(true); }
+  }, []);
+  useEffect(() => {
+    document.documentElement.setAttribute('data-view', view);
+    const hash = view === 'diag' ? '#diagnostico' : '';
+    if (window.location.hash !== hash) history.replaceState(null, '', window.location.pathname + window.location.search + hash);
+  }, [view]);
+  function openView(v: 'dashboard' | 'diag') {
+    setView(v);
+    if (v === 'diag') setDiagOpened(true);
+  }
   const [since, setSince] = useState(todayISO(-30));
   const [until, setUntil] = useState(todayISO());
   const [nCampaigns, setNCampaigns] = useState(2);
@@ -388,7 +409,7 @@ export default function Dashboard() {
       ]);
       const JsPDF = jsPDFModule.default;
       const target = document.querySelector('.wrap') as HTMLElement;
-      const canvas = await html2canvas(target, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const canvas = await html2canvas(target, { scale: 2, backgroundColor: view === 'diag' ? '#0c0d0f' : '#ffffff', useCORS: true });
       const pdf = new JsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
@@ -405,7 +426,7 @@ export default function Dashboard() {
         pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
       }
-      pdf.save('reporte-mastery-campanas.pdf');
+      pdf.save(view === 'diag' ? 'diagnostico-mastery-anuncios.pdf' : 'reporte-mastery-campanas.pdf');
     } catch (e: any) {
       setError('No se pudo generar el PDF: ' + e.message);
     } finally {
@@ -498,8 +519,35 @@ export default function Dashboard() {
           </button>
           <button className="btn" onClick={handleLogout}>Cerrar sesión</button>
         </div>
+        <div className="view-tabs" role="tablist">
+          <button role="tab" aria-selected={view === 'dashboard'} className={view === 'dashboard' ? 'active' : ''} onClick={() => openView('dashboard')}>
+            <span className="ico">▦</span>Dashboard
+          </button>
+          <button role="tab" aria-selected={view === 'diag'} className={view === 'diag' ? 'active' : ''} onClick={() => openView('diag')}>
+            <span className="ico">〰</span>Diagnóstico
+          </button>
+        </div>
       </div>
 
+      {/* Diagnóstico: se monta la primera vez que lo abres y despues solo
+          se oculta, para no perder los analisis de IA al cambiar de vista. */}
+      {diagOpened && (
+        <div style={{ display: view === 'diag' ? 'block' : 'none' }}>
+          <DiagnosticoPanel
+            since={since}
+            until={until}
+            setSince={setSince}
+            setUntil={setUntil}
+            campaigns={selectedCampaigns.map((c) => ({ id: c.id, name: c.name }))}
+            active={view === 'diag'}
+            dashboardLoading={loading || querying}
+          />
+        </div>
+      )}
+
+      {/* Dashboard: exactamente igual que antes, solo envuelto para poder
+          ocultarlo (no se desmonta) cuando la vista activa es Diagnóstico. */}
+      <div style={{ display: view === 'dashboard' ? 'block' : 'none' }}>
       {error && <div className="error-banner">{error}</div>}
 
       <div className="section-title big">Meta Ads</div>
@@ -615,6 +663,7 @@ export default function Dashboard() {
         since={since}
         until={until}
       />
+      </div>
     </div>
   );
 }
@@ -930,7 +979,6 @@ function CitasPanelRow({ colSpan, adId, citas, open }: { colSpan: number; adId: 
 }
 
 function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath, citasByAdId }: { ads: AdRow[]; badges: any; orderedAdsets: AdsetGroup[]; ga4SessionsByPath: Record<string, number>; citasByAdId: Record<string, any[]> }) {
-  const [openAdId, setOpenAdId] = useState<string | null>(null);
 
   // La barra vertical dentro de cada celda ("embudo visual" original) -
   // la altura es proporcional al maximo de esa columna especifica, no
@@ -999,7 +1047,6 @@ function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath, citasByAd
                 const path = normalizePath(a.landing_url);
                 const ga4Value = path && path in ga4SessionsByPath ? ga4SessionsByPath[path] : null;
                 const citas = citasByAdId[a.level_id];
-                const isOpen = openAdId === a.level_id;
                 return (
                   <>
                     <tr key={a.level_id} className={isTopOverall ? 'best-row' : ''}>
@@ -1031,15 +1078,15 @@ function ResultsTable({ ads, badges, orderedAdsets, ga4SessionsByPath, citasByAd
                         const max = maxByEvent[ev.key];
                         return <BarCell key={ev.key} value={count} max={max} isBest={max > 0 && count === max} isWeak={count === 0} format={(v) => String(v)} />;
                       })}
-                      <td onClick={() => citas && citas.length > 0 && setOpenAdId(isOpen ? null : a.level_id)}>
+                      <td>
                         {citas && citas.length > 0 ? (
-                          <span className="citas-badge" style={{ cursor: 'pointer' }}>{citas.length} cita{citas.length !== 1 ? 's' : ''} <span className="chev">{isOpen ? '▴' : '▾'}</span></span>
+                          <span className="citas-badge">{citas.length} cita{citas.length !== 1 ? 's' : ''}</span>
                         ) : (
                           <span className="citas-badge zero">0 citas</span>
                         )}
                       </td>
                     </tr>
-                    <CitasPanelRow colSpan={colCount} adId={a.level_id} citas={citas} open={isOpen} />
+                    <CitasPanelRow colSpan={colCount} adId={a.level_id} citas={citas} open={Boolean(citas && citas.length > 0)} />
                   </>
                 );
               })}

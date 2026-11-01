@@ -33,56 +33,77 @@ export type GhlAppointmentRaw = {
   dateAdded?: string;
 };
 
+export type GhlCalendarDiagnostic = {
+  calendarId: string;
+  status: 'ok' | 'error';
+  eventCount: number;
+  error?: string;
+};
+
 // GHL no deja pedir "todas las citas de la location" en una sola
 // llamada - exige indicar DE QUE CALENDARIO especificamente (confirmado
 // con el error real: "Either of userId, calendarId or groupId is
 // required"). Por eso primero se trae la lista de calendarios de la
 // cuenta, y despues se piden las citas calendario por calendario.
-async function fetchGhlCalendarIds(params: { token: string; locationId: string }): Promise<string[]> {
+async function fetchGhlCalendarIds(params: { token: string; locationId: string }): Promise<{ ids: string[]; raw: any }> {
   const { token, locationId } = params;
   const url = `${API_BASE}/calendars/?locationId=${locationId}`;
   const res = await fetch(url, { headers: headers(token) });
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`GHL /calendars respondio ${res.status}: ${body.slice(0, 300)}`);
+    throw new Error(`GHL /calendars respondio ${res.status}: ${JSON.stringify(data).slice(0, 400)}`);
   }
-  const data = await res.json();
   const calendars: any[] = data.calendars || [];
-  return calendars.map((c) => c.id).filter(Boolean);
+  return { ids: calendars.map((c) => c.id).filter(Boolean), raw: data };
 }
 
 // Trae los eventos de calendario (citas) de un rango de fechas, de
-// TODOS los calendarios de la location, uno por uno.
+// TODOS los calendarios de la location, uno por uno. Devuelve tanto las
+// citas encontradas como un diagnostico calendario-por-calendario, para
+// poder ver en la MISMA respuesta que exito o fallo cada uno - sin
+// tener que ir a buscar logs del servidor aparte.
 export async function fetchGhlAppointments(params: {
   token: string;
   locationId: string;
   startTime: string; // ISO
   endTime: string; // ISO
-}): Promise<GhlAppointmentRaw[]> {
+}): Promise<{ appointments: GhlAppointmentRaw[]; diagnostics: GhlCalendarDiagnostic[]; calendarsRaw: any }> {
   const { token, locationId, startTime, endTime } = params;
 
-  const calendarIds = await fetchGhlCalendarIds({ token, locationId });
+  const { ids: calendarIds, raw: calendarsRaw } = await fetchGhlCalendarIds({ token, locationId });
   if (calendarIds.length === 0) {
-    throw new Error('GHL no devolvio ningun calendario para esta location - revisa que GHL_LOCATION_ID sea correcto.');
+    // Se devuelve vacio en vez de tirar error - asi la respuesta de
+    // /api/backfill-ghl igual trae el "calendarsRaw" crudo, para poder
+    // ver que devolvio GHL aunque no haya encontrado ningun ID.
+    return { appointments: [], diagnostics: [], calendarsRaw };
   }
 
   const allAppointments: GhlAppointmentRaw[] = [];
-  for (const calendarId of calendarIds) {
-    const url = `${API_BASE}/calendars/events?locationId=${locationId}&calendarId=${calendarId}&startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}`;
-    const res = await fetch(url, { headers: headers(token) });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      // Un calendario que falle no debe tumbar a los demas - se
-      // registra en consola y se sigue con el resto.
-      console.error(`GHL /calendars/events (calendarId=${calendarId}) respondio ${res.status}: ${body.slice(0, 300)}`);
-      continue;
-    }
-    const data = await res.json();
-    const events = data.events || data.appointments || [];
-    allAppointments.push(...events);
+  const diagnostics: GhlCalendarDiagnostic[] = [];
+
+  // Se piden TODOS los calendarios al mismo tiempo (en paralelo), no
+  // uno por uno en fila - con 17 calendarios, hacerlo en fila puede
+  // tardar lo suficiente para que Vercel corte la funcion por tiempo
+  // (error 504).
+  const results = await Promise.all(
+    calendarIds.map(async (calendarId) => {
+      const url = `${API_BASE}/calendars/events?locationId=${locationId}&calendarId=${calendarId}&startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}`;
+      const res = await fetch(url, { headers: headers(token) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { calendarId, status: 'error' as const, eventCount: 0, error: JSON.stringify(data).slice(0, 400), events: [] as GhlAppointmentRaw[] };
+      }
+      const events = data.events || data.appointments || [];
+      return { calendarId, status: 'ok' as const, eventCount: events.length, events };
+    })
+  );
+
+  for (const r of results) {
+    diagnostics.push({ calendarId: r.calendarId, status: r.status, eventCount: r.eventCount, error: 'error' in r ? r.error : undefined });
+    allAppointments.push(...r.events);
   }
 
-  return allAppointments;
+  return { appointments: allAppointments, diagnostics, calendarsRaw };
 }
 
 export type GhlContactAttribution = {
@@ -106,12 +127,29 @@ export async function fetchGhlContactAttribution(params: {
 }): Promise<GhlContactAttribution> {
   const { token, contactId } = params;
   const url = `${API_BASE}/contacts/${contactId}`;
-  const res = await fetch(url, { headers: headers(token) });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`GHL /contacts/${contactId} respondio ${res.status}: ${body.slice(0, 300)}`);
+
+  // Reintenta hasta 4 veces si GHL responde 429 (demasiadas peticiones),
+  // esperando cada vez un poco mas (0.5s, 1s, 2s, 4s) - esto es normal
+  // cuando se procesan muchos contactos seguidos, no un error real.
+  let lastError = '';
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await fetch(url, { headers: headers(token) });
+    if (res.status === 429) {
+      lastError = 'GHL respondio 429 (demasiadas peticiones) - reintentando';
+      await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt)));
+      continue;
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`GHL /contacts/${contactId} respondio ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const data = await res.json();
+    return extractAttributionFromContact(data);
   }
-  const data = await res.json();
+  throw new Error(`GHL /contacts/${contactId}: ${lastError} (se agotaron los reintentos)`);
+}
+
+function extractAttributionFromContact(data: any): GhlContactAttribution {
   const contact = data.contact || data;
 
   // customFields llega como arreglo [{id, key/name, value}] en la API v2.

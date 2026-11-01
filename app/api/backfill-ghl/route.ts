@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
 
   const since = req.nextUrl.searchParams.get('since');
   const until = req.nextUrl.searchParams.get('until');
+  const debug = req.nextUrl.searchParams.get('debug') === '1';
   if (!since || !until) {
     return NextResponse.json({ error: 'Faltan ?since=YYYY-MM-DD&until=YYYY-MM-DD en la URL' }, { status: 400 });
   }
@@ -31,50 +32,68 @@ export async function POST(req: NextRequest) {
   const db = supabaseAdmin();
   let inserted = 0, skipped = 0, failed = 0;
   const errors: string[] = [];
+  let calendarDiagnostics: any[] = [];
+  let calendarsRaw: any = null;
 
   try {
-    const appointments = await fetchGhlAppointments({
+    const result = await fetchGhlAppointments({
       token,
       locationId,
-      startTime: new Date(since).toISOString(),
-      endTime: new Date(until).toISOString(),
+      startTime: String(new Date(since).getTime()),
+      endTime: String(new Date(until).getTime()),
     });
+    calendarDiagnostics = result.diagnostics;
+    calendarsRaw = result.calendarsRaw;
 
-    for (const appt of appointments) {
-      try {
-        const attribution = await fetchGhlContactAttribution({ token, contactId: appt.contactId });
-
-        const { error, count } = await db
-          .from('ghl_appointments')
-          .upsert(
-            {
-              ghl_appointment_id: appt.id,
-              ghl_contact_id: appt.contactId,
-              contact_name: attribution.name,
-              contact_phone: attribution.phone,
-              contact_email: attribution.email,
-              meta_campaign_id: attribution.campaignId,
-              meta_adset_id: attribution.adsetId,
-              meta_ad_id: attribution.adId,
-              utm_source: attribution.utmSource,
-              utm_medium: attribution.utmMedium,
-              appointment_start_at: appt.startTime,
-              appointment_created_at: appt.dateAdded || null,
-              source: 'backfill',
-              raw: appt,
-            },
-            { onConflict: 'ghl_appointment_id', ignoreDuplicates: true }
-          );
-
-        if (error) { failed++; errors.push(`${appt.id}: ${error.message}`); }
-        else inserted++;
-      } catch (err: any) {
-        failed++;
-        errors.push(`${appt.id}: ${err.message}`);
+    // Se procesan de a 5 citas en paralelo, con una pausa corta entre
+    // tandas - 10 a la vez fue demasiado rapido y GHL empezo a
+    // responder 429 (demasiadas peticiones). 5 + pausa es mas lento
+    // pero confiable.
+    const CHUNK_SIZE = 5;
+    for (let i = 0; i < result.appointments.length; i += CHUNK_SIZE) {
+      const chunk = result.appointments.slice(i, i + CHUNK_SIZE);
+      const chunkResults = await Promise.all(
+        chunk.map(async (appt) => {
+          try {
+            const attribution = await fetchGhlContactAttribution({ token, contactId: appt.contactId });
+            const { error } = await db
+              .from('ghl_appointments')
+              .upsert(
+                {
+                  ghl_appointment_id: appt.id,
+                  ghl_contact_id: appt.contactId,
+                  contact_name: attribution.name,
+                  contact_phone: attribution.phone,
+                  contact_email: attribution.email,
+                  meta_campaign_id: attribution.campaignId,
+                  meta_adset_id: attribution.adsetId,
+                  meta_ad_id: attribution.adId,
+                  utm_source: attribution.utmSource,
+                  utm_medium: attribution.utmMedium,
+                  appointment_start_at: appt.startTime,
+                  appointment_created_at: appt.dateAdded || null,
+                  source: 'backfill',
+                  raw: appt,
+                },
+                { onConflict: 'ghl_appointment_id', ignoreDuplicates: true }
+              );
+            return error ? { ok: false, id: appt.id, msg: error.message } : { ok: true };
+          } catch (err: any) {
+            return { ok: false, id: appt.id, msg: err.message };
+          }
+        })
+      );
+      for (const r of chunkResults) {
+        if (r.ok) inserted++;
+        else { failed++; errors.push(`${r.id}: ${r.msg}`); }
+      }
+      // Pausa corta entre tandas para no saturar la API de GHL.
+      if (i + CHUNK_SIZE < result.appointments.length) {
+        await new Promise((r) => setTimeout(r, 300));
       }
     }
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message, calendarsRaw }, { status: 500 });
   }
 
   return NextResponse.json({
@@ -84,5 +103,15 @@ export async function POST(req: NextRequest) {
     skipped,
     failed,
     errors: errors.slice(0, 20), // solo las primeras 20 para no saturar la respuesta
+    // Diagnostico: cuantos calendarios encontro y cuantos eventos trajo
+    // cada uno (o el error de ese calendario en particular). Esto es lo
+    // que reemplaza tener que ir a buscar en los logs de Vercel.
+    calendars_found: calendarDiagnostics.length,
+    // Un solo numero resumen, para no tener que copiar el arreglo
+    // completo de diagnosticos cada vez que se prueba - si esto es 0,
+    // GHL no devolvio NINGUN evento en ningun calendario para el rango.
+    total_events_found: calendarDiagnostics.reduce((sum, d) => sum + (d.eventCount || 0), 0),
+    calendar_diagnostics: calendarDiagnostics,
+    calendars_raw: debug ? calendarsRaw : undefined,
   });
 }
