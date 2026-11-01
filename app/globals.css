@@ -479,3 +479,12 @@ table.dg-video-table td.hero{color:var(--dg-accent);font-weight:600;}
 .dg-combo b{color:var(--dg-info-strong);font-weight:600;}
 .dg-section-sub b{color:var(--dg-text);font-weight:600;}
 @media (max-width:700px){ .dg-glossary-tier{flex-direction:column;gap:6px;} }
+
+/* Selector de cuenta publicitaria (header) */
+.account-switch{display:flex;align-items:center;gap:8px;margin-top:4px;}
+.account-switch label{font-size:11px;color:var(--text-muted);letter-spacing:.3px;text-transform:uppercase;}
+.account-switch select{background:var(--card);border:1.5px solid var(--purple);color:var(--text);padding:8px 12px;border-radius:9px;font-size:13.5px;font-weight:600;min-width:220px;cursor:pointer;}
+html[data-theme="dark"] .account-switch select{backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);}
+html[data-view="diag"] .account-switch label{color:#9a9c9f;}
+html[data-view="diag"] .account-switch select{background:#151719;border-color:#d4a94c;color:#eeeeec;color-scheme:dark;}
+@media (max-width:640px){ .account-switch{flex-direction:column;align-items:stretch;width:100%;} .account-switch select{width:100%;} }

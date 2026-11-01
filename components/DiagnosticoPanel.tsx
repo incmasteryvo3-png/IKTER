@@ -11,7 +11,7 @@
 // solo comparte el rango de fechas que se le pasa por props.
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 type Level = 'ad' | 'adset' | 'campaign';
 
@@ -272,7 +272,13 @@ function DiagAiPair({ kind, payload }: { kind: string; payload: unknown }) {
   );
 }
 
+// Cuenta publicitaria activa, para que las IAs sepan de qué cuenta son los
+// datos (se actualiza en cada render del panel).
+// Nombre de la cuenta publicitaria activa, para darle contexto a las IAs.
+const AccountNameCtx = createContext('');
+
 function DiagAiCard({ provider, kind, payload }: { provider: 'gemini' | 'claude'; kind: string; payload: unknown }) {
+  const accountName = useContext(AccountNameCtx);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -285,7 +291,7 @@ function DiagAiCard({ provider, kind, payload }: { provider: 'gemini' | 'claude'
       const res = await fetch(`/api/analyze/${provider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: payload, prompt: buildChartPrompt(kind, payload) }),
+        body: JSON.stringify({ data: payload, prompt: buildChartPrompt(accountName ? `${kind} — cuenta publicitaria "${accountName}"` : kind, payload) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al generar el análisis');
@@ -574,8 +580,10 @@ function TimelineCard({ entities, dates, colorOf, since, until }: { entities: En
 type SelectedCampaign = { id: string; name: string };
 
 export default function DiagnosticoPanel({
-  since, until, setSince, setUntil, campaigns, active, dashboardLoading,
+  since, until, setSince, setUntil, campaigns, active, dashboardLoading, accountId = '', accountName = '',
 }: {
+  accountId?: string;              // cuenta publicitaria elegida en el header
+  accountName?: string;
   since: string; until: string; setSince: (v: string) => void; setUntil: (v: string) => void;
   campaigns: SelectedCampaign[];   // campañas elegidas en el Dashboard
   active: boolean;                 // la pestaña Diagnóstico esta visible
@@ -588,14 +596,14 @@ export default function DiagnosticoPanel({
   const [error, setError] = useState<string | null>(null);
 
   const campaignIds = useMemo(() => campaigns.map((c) => c.id).filter(Boolean), [campaigns]);
-  const campaignKey = campaignIds.join(',');
+  const campaignKey = `${accountId}|${campaignIds.join(',')}`;
 
-  const load = useCallback(async (s: string, u: string, ids: string[]) => {
+  const load = useCallback(async (s: string, u: string, ids: string[], acc: string) => {
     if (ids.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/insights/daily?since=${s}&until=${u}&level=ad&campaign_ids=${ids.join(',')}`);
+      const res = await fetch(`/api/insights/daily?since=${s}&until=${u}&level=ad&campaign_ids=${ids.join(',')}${acc ? `&account=${acc}` : ''}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al consultar Meta.');
       const list: Entity[] = json.entities || [];
@@ -604,7 +612,7 @@ export default function DiagnosticoPanel({
       list.forEach((e) => { e.label = seen[e.name] > 1 && e.adset_name ? `${e.name} · ${e.adset_name}` : e.name; });
       setDates(json.dates || []);
       setEntities(list);
-      setLoaded({ since: s, until: u, key: ids.join(',') });
+      setLoaded({ since: s, until: u, key: `${acc}|${ids.join(',')}` });
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -617,7 +625,7 @@ export default function DiagnosticoPanel({
   useEffect(() => {
     if (!active || campaignIds.length === 0) return;
     if (loaded && loaded.key === campaignKey) return;
-    load(since, until, campaignIds);
+    load(since, until, campaignIds, accountId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, campaignKey]);
 
@@ -651,9 +659,10 @@ export default function DiagnosticoPanel({
   const stale = loaded && (loaded.since !== since || loaded.until !== until);
 
   return (
+    <AccountNameCtx.Provider value={accountName}>
     <div className="dg-root">
       <header className="dg-header">
-        <p className="dg-brand">{PANEL_BRAND}</p>
+        <p className="dg-brand">{PANEL_BRAND}{accountName ? ` · ${accountName}` : ''}</p>
         <h1>Comportamiento de anuncios{loaded ? ` — ${fmtLongRange(loaded.since, loaded.until)}` : ''}</h1>
         <p className="dg-lead">Anuncios de las campañas que elegiste en el Dashboard, con el mismo rango de fechas. Cada gráfico muestra únicamente los días en que ese anuncio estuvo activo. Todo indexado 0-100 para comparar en el mismo eje — el tooltip muestra el valor real. Las franjas marcan días sin ninguna fila de datos de Meta (posible pausa o corte de entrega).</p>
 
@@ -668,7 +677,7 @@ export default function DiagnosticoPanel({
                 : campaigns.map((c) => <span className="dg-chip" key={c.id} title={c.name}>{c.name}</span>)}
             </div>
           </div>
-          <button className="dg-btn primary" onClick={() => load(since, until, campaignIds)} disabled={loading || campaignIds.length === 0}>
+          <button className="dg-btn primary" onClick={() => load(since, until, campaignIds, accountId)} disabled={loading || campaignIds.length === 0}>
             {loading ? 'Consultando…' : stale ? 'Consultar nuevas fechas' : 'Consultar'}
           </button>
         </div>
@@ -744,5 +753,6 @@ export default function DiagnosticoPanel({
         </div>
       )}
     </div>
+    </AccountNameCtx.Provider>
   );
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchMetaInsights, fetchAdsetGoals, fetchCampaignStatus, fetchAdLandingUrls } from '@/lib/meta';
+import { resolveAdAccount } from '@/lib/accounts';
 
 export const maxDuration = 60;
 
@@ -16,11 +17,14 @@ export async function GET(req: NextRequest) {
   }
 
   const token = process.env.META_SYSTEM_USER_TOKEN;
-  const adAccountId = process.env.META_AD_ACCOUNT_ID;
+  // Cuenta publicitaria elegida en el selector (?account=act_...). Solo
+  // se aceptan las configuradas en META_AD_ACCOUNTS (ver lib/accounts.ts).
+  const account = resolveAdAccount(searchParams.get('account'));
 
-  if (!token || !adAccountId) {
-    return NextResponse.json({ error: 'Faltan META_SYSTEM_USER_TOKEN o META_AD_ACCOUNT_ID en el servidor.' }, { status: 500 });
+  if (!token || !account) {
+    return NextResponse.json({ error: searchParams.get('account') && token ? 'Esa cuenta publicitaria no está configurada en META_AD_ACCOUNTS.' : 'Faltan META_SYSTEM_USER_TOKEN o META_AD_ACCOUNTS / META_AD_ACCOUNT_ID en el servidor.' }, { status: token ? 400 : 500 });
   }
+  const adAccountId = account.id;
 
   try {
     const [campaigns, adsetsRaw, adsRaw] = await Promise.all([
@@ -83,7 +87,7 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ ok: true, since, until, campaigns: campaignsWithStatus, adsets, ads });
+    return NextResponse.json({ ok: true, since, until, account, campaigns: campaignsWithStatus, adsets, ads });
   } catch (err: any) {
     console.error('Error en /api/insights:', err);
     return NextResponse.json({ error: err?.message || 'Error al consultar Meta.' }, { status: 500 });

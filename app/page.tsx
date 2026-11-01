@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase';
 import dynamic from 'next/dynamic';
@@ -292,21 +292,35 @@ export default function Dashboard() {
   const [ga4Error, setGa4Error] = useState<string | null>(null);
   const [citasByAdId, setCitasByAdId] = useState<Record<string, any[]>>({});
 
+  // Cuenta publicitaria activa (selector del header). Las cuentas vienen
+  // de META_AD_ACCOUNTS en Vercel; se recuerda la ultima elegida en este
+  // navegador. Se guarda tambien en un ref para que loadInsights (que se
+  // llama desde varios lugares) siempre use la cuenta vigente.
+  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
+  const [accountId, setAccountId] = useState<string>('');
+  const accountRef = useRef<string>('');
+
   const loadInsights = useCallback(async (s: string, u: string) => {
     setQuerying(true);
     setError(null);
+    const requested = accountRef.current;
     try {
-      const res = await fetch(`/api/insights?since=${s}&until=${u}`);
+      const acc = requested ? `&account=${requested}` : '';
+      const res = await fetch(`/api/insights?since=${s}&until=${u}${acc}`);
       const json = await res.json();
+      // Si mientras tanto se cambio de cuenta, esta respuesta ya no sirve.
+      if (requested !== accountRef.current) return;
       if (!res.ok) throw new Error(json.error || 'Error al consultar Meta.');
       setCampaigns(json.campaigns || []);
       setAdsets(json.adsets || []);
       setAds(json.ads || []);
     } catch (e: any) {
-      setError(e.message);
+      if (requested === accountRef.current) setError(e.message);
     } finally {
-      setQuerying(false);
-      setLoading(false);
+      if (requested === accountRef.current) {
+        setQuerying(false);
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -347,7 +361,25 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    loadInsights(since, until);
+    // Primero se resuelve la cuenta (la ultima usada en este navegador si
+    // sigue configurada, si no la primera de la lista) y despues se
+    // consulta Meta con esa cuenta.
+    (async () => {
+      try {
+        const res = await fetch('/api/accounts');
+        const json = await res.json();
+        const list: { id: string; name: string }[] = json.accounts || [];
+        setAccounts(list);
+        let saved = '';
+        try { saved = localStorage.getItem('ikter_account') || ''; } catch {}
+        const chosen = list.find((a) => a.id === saved)?.id || list[0]?.id || '';
+        accountRef.current = chosen;
+        setAccountId(chosen);
+      } catch {
+        // sin lista de cuentas: el servidor usa la cuenta por defecto
+      }
+      loadInsights(since, until);
+    })();
     loadGa4(since, until);
     loadCitas();
     supabaseBrowser
@@ -377,6 +409,22 @@ export default function Dashboard() {
       return next.slice(0, nCampaigns);
     });
   }, [nCampaigns, campaigns]);
+
+  // Cambio de cuenta: se limpian las campañas elegidas (son de la otra
+  // cuenta) y se vuelve a consultar Meta con el mismo rango de fechas.
+  function changeAccount(id: string) {
+    if (id === accountRef.current) return;
+    accountRef.current = id;
+    setAccountId(id);
+    try { localStorage.setItem('ikter_account', id); } catch {}
+    setSelIds([]);
+    setCampaigns([]);
+    setAdsets([]);
+    setAds([]);
+    setLoading(true);
+    loadInsights(since, until);
+  }
+  const accountName = accounts.find((a) => a.id === accountId)?.name || '';
 
   async function handleLogout() {
     await supabaseBrowser.auth.signOut();
@@ -507,7 +555,7 @@ export default function Dashboard() {
         <img className="logo" src="/logo-mastery.png" alt="Mastery" />
         <h1 className="title">Reporte de campañas</h1>
         <p className="period">
-          Datos en vivo desde Meta Ads
+          Datos en vivo desde Meta Ads{accountName && accounts.length > 1 ? ` · ${accountName}` : ''}
           {lastFetched && ` · Último sync guardado: ${new Date(lastFetched).toLocaleString('es-CO')}`}
         </p>
         <div className="actions">
@@ -519,6 +567,14 @@ export default function Dashboard() {
           </button>
           <button className="btn" onClick={handleLogout}>Cerrar sesión</button>
         </div>
+        {accounts.length > 1 && (
+          <div className="account-switch">
+            <label htmlFor="account-select">Cuenta publicitaria</label>
+            <select id="account-select" value={accountId} onChange={(e) => changeAccount(e.target.value)} disabled={querying}>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+        )}
         <div className="view-tabs" role="tablist">
           <button role="tab" aria-selected={view === 'dashboard'} className={view === 'dashboard' ? 'active' : ''} onClick={() => openView('dashboard')}>
             <span className="ico">▦</span>Dashboard
@@ -539,6 +595,8 @@ export default function Dashboard() {
             setSince={setSince}
             setUntil={setUntil}
             campaigns={selectedCampaigns.map((c) => ({ id: c.id, name: c.name }))}
+            accountId={accountId}
+            accountName={accountName}
             active={view === 'diag'}
             dashboardLoading={loading || querying}
           />
@@ -597,7 +655,7 @@ export default function Dashboard() {
 
           <FunnelGroup items={selectedCampaigns} stages={PACKAGES[metricPackage].stages} />
 
-          <AiCardPair payload={{ tipo: 'comparación de campañas', periodo: { since, until }, campañas: selectedCampaigns.map((s) => s.data) }} />
+          <AiCardPair payload={{ cuenta: accountName || undefined, tipo: 'comparación de campañas', periodo: { since, until }, campañas: selectedCampaigns.map((s) => s.data) }} />
 
           {selectedCampaigns.map((camp) => {
             const campAdsets: FunnelItem[] = adsets
@@ -623,7 +681,7 @@ export default function Dashboard() {
                     {campAdsets.map((adset) => (
                       <div key={adset.id} style={{ marginTop: 18 }}>
                         <div className="section-sub" style={{ fontWeight: 600, color: 'var(--carbon)' }}>Análisis — {adset.name}</div>
-                        <AiCardPair payload={{ tipo: 'conjunto de anuncios', campaña: camp.name, periodo: { since, until }, conjunto: adset.data }} />
+                        <AiCardPair payload={{ cuenta: accountName || undefined, tipo: 'conjunto de anuncios', campaña: camp.name, periodo: { since, until }, conjunto: adset.data }} />
                       </div>
                     ))}
                   </>
@@ -647,7 +705,7 @@ export default function Dashboard() {
                 <ResultsTable ads={filteredAds} badges={badges} orderedAdsets={orderedAdsets} ga4SessionsByPath={ga4SessionsByPath} citasByAdId={citasByAdId} />
               </div>
 
-              <AiCardPair payload={{ tipo: 'tabla de creativos', periodo: { since, until }, anuncios: filteredAds }} />
+              <AiCardPair payload={{ cuenta: accountName || undefined, tipo: 'tabla de creativos', periodo: { since, until }, anuncios: filteredAds }} />
             </>
           )}
         </>

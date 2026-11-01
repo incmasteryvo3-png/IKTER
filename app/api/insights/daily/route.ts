@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchDailyDiagnostics, type DiagLevel } from '@/lib/metaDaily';
 import { fetchAdsetGoals, fetchCampaignStatus } from '@/lib/meta';
+import { resolveAdAccount } from '@/lib/accounts';
 
 export const maxDuration = 60;
 
 // Alimenta la pestaña "Diagnóstico": serie DIARIA en vivo desde Meta
 // (mismo patron que /api/insights, que sigue intacto para el Dashboard).
-// GET /api/insights/daily?since=YYYY-MM-DD&until=YYYY-MM-DD&level=ad|adset|campaign&campaign_ids=ID1,ID2,ID3
+// GET /api/insights/daily?since=YYYY-MM-DD&until=YYYY-MM-DD&level=ad|adset|campaign&campaign_ids=ID1,ID2,ID3&account=act_...
 // (campaign_ids = las campañas elegidas en el Dashboard; la pestaña Diagnóstico siempre lo manda)
 const MAX_DAYS = 93;
 
@@ -29,10 +30,11 @@ export async function GET(req: NextRequest) {
   }
 
   const token = process.env.META_SYSTEM_USER_TOKEN;
-  const adAccountId = process.env.META_AD_ACCOUNT_ID;
-  if (!token || !adAccountId) {
-    return NextResponse.json({ error: 'Faltan META_SYSTEM_USER_TOKEN o META_AD_ACCOUNT_ID en el servidor.' }, { status: 500 });
+  const account = resolveAdAccount(searchParams.get('account'));
+  if (!token || !account) {
+    return NextResponse.json({ error: searchParams.get('account') && token ? 'Esa cuenta publicitaria no está configurada en META_AD_ACCOUNTS.' : 'Faltan META_SYSTEM_USER_TOKEN o META_AD_ACCOUNTS / META_AD_ACCOUNT_ID en el servidor.' }, { status: token ? 400 : 500 });
   }
+  const adAccountId = account.id;
 
   const level = levelParam as DiagLevel;
   const campaignIds = (searchParams.get('campaign_ids') || '').split(',').map((x) => x.trim()).filter(Boolean);

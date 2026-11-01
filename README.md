@@ -1,5 +1,29 @@
 # Mastery Dashboard — Meta Ads en tiempo real + análisis con Gemini y Claude
 
+## Novedad v0.5 — selector de cuenta publicitaria (Mastery TikTok / Mastery Aesthetics)
+
+Arriba, debajo de los botones del header, aparece **"Cuenta publicitaria"** (solo si hay 2 o más cuentas configuradas). Al cambiar de cuenta se recargan las campañas con el mismo rango de fechas, se limpian las campañas elegidas (eran de la otra cuenta) y la pestaña Diagnóstico sigue a la cuenta y a las campañas elegidas. El navegador recuerda la última cuenta usada. Las IAs reciben el nombre de la cuenta como contexto.
+
+### Qué hacer para activarlo
+
+**1. Meta (Business Manager)** — el MISMO usuario del sistema cuyo token está en `META_SYSTEM_USER_TOKEN` debe tener acceso a las dos cuentas:
+Business Settings → Usuarios → Usuarios del sistema → (tu usuario) → **Asignar activos** → Cuentas publicitarias → marca las dos → permiso al menos de **ver rendimiento**. No hace falta generar un token nuevo: el actual pasa a ver la cuenta recién asignada.
+
+**2. Vercel** — Project → **Settings → Environment Variables** → **Add New**:
+```
+Key:   META_AD_ACCOUNTS
+Value: act_111111111:Mastery TikTok,act_222222222:Mastery Aesthetics
+```
+(los números reales los ves en Ads Manager, arriba a la izquierda en el selector de cuentas, o en la URL: `act=111111111`). Marca los entornos Production (y Preview si lo usas) → Save. Luego **Deployments → … → Redeploy** (o simplemente haz el push de esta versión, que ya dispara un deploy con la variable).
+- La primera cuenta de la lista es la que se abre por defecto.
+- `META_AD_ACCOUNT_ID` puedes dejarla: solo se usa si `META_AD_ACCOUNTS` no existe.
+
+**3. Supabase — nada.** La tabla `ad_accounts` ya admite varias cuentas: el cron de cada 30 min (y "Actualizar ahora") sincroniza ahora **todas** las cuentas de la lista, cada una en su fila, en paralelo; si una falla, la otra se guarda igual. No hay SQL que correr.
+
+**4. GitHub Actions — nada.** Los mismos secretos `SITE_URL` y `CRON_SECRET`.
+
+**Lo que sigue siendo una sola configuración para ambas cuentas:** GA4 (una propiedad, `GA4_PROPERTY_ID`) y GHL (una location). Las citas de GHL igual se ven bien en las dos cuentas porque se cruzan por el ID del anuncio. Si Aesthetics usa otro sitio/propiedad de GA4, avísame y se separa por cuenta.
+
 ## Novedad v0.3 — pestaña "Diagnóstico" (gráficas diarias + IA por gráfica)
 
 Arriba, debajo de los botones del header, ahora hay dos pestañas: **Dashboard** (todo lo que ya existía, sin ningún cambio) y **Diagnóstico** (nuevo).
@@ -168,6 +192,8 @@ app/api/analyze/claude/        → analisis con Claude ("ATALAYA"), sin estado
 app/api/sync-meta/             → cron historico hacia Supabase (Meta)
 app/api/sync-ga4/                → cron historico hacia Supabase (GA4)
 app/api/refresh/                → boton "Actualizar ahora" (sincroniza Meta y GA4 en paralelo; las citas de GHL se leen de Supabase, no se re-consultan)
+app/api/accounts/                → lista de cuentas para el selector (de META_AD_ACCOUNTS)
+lib/accounts.ts                  → lee META_AD_ACCOUNTS y valida la cuenta pedida
 app/api/insights/daily/          → serie DIARIA en vivo desde Meta para la pestaña Diagnóstico
 components/DiagnosticoPanel.tsx  → pestaña Diagnóstico (graficas + IA por grafica)
 app/page.tsx                    → el dashboard (con las pestañas Dashboard | Diagnóstico): Meta (campañas -> conjuntos de anuncios -> creativos) primero, GA4 (sitio web) al final, cada seccion con sus tarjetas de IA
